@@ -8,7 +8,7 @@ fn stream_handler(mut stream: TcpStream)  -> Result<(), Box<dyn Error>> {
 
     if let Ok(buf_len) = stream.read(&mut buffer) {
 
-        if buffer[..buf_len] == *b"*1\r\n$4\r\nping\r\n" {
+        if &buffer[..buf_len] == b"*1\r\n$4\r\nping\r\n" {
 
             stream.write_all(b"+PONG\r\n")?
 
@@ -30,11 +30,8 @@ fn main() {
 
     for stream in listener.incoming() {
         match stream {
-            Ok(_stream) => {
-                println!("accepted new connection");
-            }
-            Ok(mut stream) => {
-                if let Ok(res) = stream_handler(stream) {
+            Ok(stream) => {
+                if let Ok(_res) = stream_handler(stream) {
                     println!("Handled the response");
                 }
             }
