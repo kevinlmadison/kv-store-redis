@@ -6,7 +6,7 @@ fn stream_handler(mut stream: TcpStream)  -> Result<(), Box<dyn Error>> {
 
     let mut buffer: [u8; 256] = [0; 256];
 
-    if let Ok(buf_len) = stream.read(&mut buffer) {
+    while let Ok(buf_len) = stream.read(&mut buffer) {
 
         if &buffer[..buf_len] == b"*1\r\n$4\r\nping\r\n" {
 
