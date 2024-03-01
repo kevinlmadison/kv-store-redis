@@ -1,4 +1,4 @@
-Uncomment this block to pass the first stage
+// Uncomment this block to pass the first stage
 use std::net::TcpListener;
 
 fn main() {
