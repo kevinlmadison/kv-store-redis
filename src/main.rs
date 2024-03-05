@@ -1,39 +1,33 @@
-use std::error::Error;
-use std::io::{Write, Read};
-use std::net::{TcpListener, TcpStream};
+use tokio::{
+    io::{AsyncWriteExt, AsyncReadExt},
+    net::{TcpListener, TcpStream},
+};
 
-fn stream_handler(mut stream: TcpStream)  -> Result<(), Box<dyn Error>> {
+async fn stream_handler(mut stream: TcpStream) {
 
     let mut buffer: [u8; 256] = [0; 256];
 
-    while let Ok(buf_len) = stream.read(&mut buffer) {
-
+    while let Ok(buf_len) = stream.read(&mut buffer).await {
         if &buffer[..buf_len] == b"*1\r\n$4\r\nping\r\n" {
-
-            stream.write_all(b"+PONG\r\n")?
-
+            stream.write_all(b"+PONG\r\n").await.unwrap()
         }
         else {
-
-            stream.write_all(&buffer[..buf_len])?
-
+            stream.write_all(&buffer[..buf_len]).await.unwrap()
         }
     }
-
-    Ok(())
+    ()
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     println!("Logs from your program will appear here!");
 
-    let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
+    let listener = TcpListener::bind("127.0.0.1:6379").await.unwrap();
 
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                if let Ok(_res) = stream_handler(stream) {
-                    println!("Handled the response");
-                }
+    loop {
+        match listener.accept().await {
+            Ok((mut stream, _)) => {
+                 tokio::spawn(async move { stream_handler(stream).await }); 
             }
             Err(e) => {
                 println!("error: {}", e);
