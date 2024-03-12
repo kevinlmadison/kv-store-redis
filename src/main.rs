@@ -1,7 +1,7 @@
 // use anyhow::{anyhow, Error};
 use std::str;
-use std::error::Error;
-use bytes::BytesMut;
+// use std::error::Error;
+// use bytes::BytesMut;
 use tokio::{
     io::{AsyncWriteExt, AsyncReadExt},
     net::{TcpListener, TcpStream},
@@ -61,7 +61,7 @@ fn parse_bulk_string(buffer: &[u8]) -> (Type, Cursor) {
     let (len_raw, cursor) = parse_crlf(buffer);
     let len = parse_usize(len_raw);
     let val = &buffer[cursor..(cursor + len)];
-    println!("BULK TEST val: {:?}, len: {:?}", str::from_utf8(&val).unwrap().to_string(), len);
+    // println!("BULK TEST val: {:?}, len: {:?}", str::from_utf8(&val).unwrap().to_string(), len);
     return(
         Type::BulkString(str::from_utf8(&val).unwrap().to_string()),
         cursor + len + 2
@@ -72,7 +72,7 @@ fn parse_bulk_string(buffer: &[u8]) -> (Type, Cursor) {
 fn parse_array(buffer: &[u8]) -> (Type, Cursor) {
     let (num_elems_raw, mut cursor) = parse_crlf(buffer);
     let num_elems = parse_usize(num_elems_raw);
-    println!("ARRAY TEST: {:?}", num_elems);
+    // println!("ARRAY TEST: {:?}", num_elems);
     let mut rv = Vec::<Type>::with_capacity(num_elems);
     for _ in 0..num_elems {
         let (elem, cursor_new) = parse_resp(&buffer[cursor..]);
@@ -103,7 +103,7 @@ fn parse_usize(buffer: &[u8]) -> usize {
 
 
 fn parse_resp(buffer: &[u8]) -> (Type, Cursor) {
-    println!("parse_resp: {:?}", str::from_utf8(&buffer[0..20]).expect("parse usize: from utf8"));
+    // println!("parse_resp: {:?}", str::from_utf8(&buffer[0..20]).expect("parse usize: from utf8"));
     match buffer[0] {
         b'+' => return parse_simple_string(&buffer[1..]),
         b'$' => return parse_bulk_string(&buffer[1..]),
@@ -140,15 +140,15 @@ async fn stream_handler(mut stream: TcpStream) {
     let mut buffer: [u8; 1024] = [0; 1024];
     if let Ok(len) = stream.read(&mut buffer).await {
         if len == 0 { 
-            println!("failed to parse any characters");
+            // println!("failed to parse any characters");
             return; 
         }
         let (resp, _) = parse_resp(&buffer);
-        println!("resp: {:?}", resp);
+        // println!("resp: {:?}", resp);
         if let Some(command) = parse_command(&resp) {
-            println!("command: {:?}", command);
+            // println!("command: {:?}", command);
             if let Some(response) = create_response(resp, command) {
-                println!("response: {:?}", response);
+                // println!("response: {:?}", str::from_utf8(&response[..]).unwrap());
                 stream.write_all(&response[..]).await.unwrap();
             }
 
