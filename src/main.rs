@@ -138,20 +138,22 @@ fn create_response(t: Type, cmd: Command) -> Option<Vec<u8>> {
 
 async fn stream_handler(mut stream: TcpStream) {
     let mut buffer: [u8; 1024] = [0; 1024];
-    if let Ok(len) = stream.read(&mut buffer).await {
-        if len == 0 { 
-            // println!("failed to parse any characters");
-            return; 
-        }
-        let (resp, _) = parse_resp(&buffer);
-        // println!("resp: {:?}", resp);
-        if let Some(command) = parse_command(&resp) {
-            // println!("command: {:?}", command);
-            if let Some(response) = create_response(resp, command) {
-                // println!("response: {:?}", str::from_utf8(&response[..]).unwrap());
-                stream.write_all(&response[..]).await.unwrap();
+    loop {
+        if let Ok(len) = stream.read(&mut buffer).await {
+            if len == 0 { 
+                // println!("failed to parse any characters");
+                return; 
             }
+            let (resp, _) = parse_resp(&buffer);
+            // println!("resp: {:?}", resp);
+            if let Some(command) = parse_command(&resp) {
+                // println!("command: {:?}", command);
+                if let Some(response) = create_response(resp, command) {
+                    // println!("response: {:?}", str::from_utf8(&response[..]).unwrap());
+                    stream.write_all(&response[..]).await.unwrap();
+                }
 
+            }
         }
     }
     ()
