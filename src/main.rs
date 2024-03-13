@@ -206,7 +206,7 @@ async fn stream_handler(mut stream: TcpStream, db: Db) -> Result<(), anyhow::Err
 
                 Some(Command::Ping) => Some(Type::SimpleString("PONG".to_string()).serialize()),
                 Some(Command::Echo) => {
-                    let Some(args) = frame.args_as_vec_type() else {
+                    let Some(mut args) = frame.args_as_vec_type() else {
                         return Err(anyhow!("Could not get frame args as Vec<Type>"));
                     };
                     if args.len() > 1 {
@@ -214,7 +214,11 @@ async fn stream_handler(mut stream: TcpStream, db: Db) -> Result<(), anyhow::Err
                                 "(error) Incorrect number of arguments for echo".to_string()
                                 ).serialize())
                     } else {
-                        Some(Type::Array(args).serialize())
+                        // Some(Type::Array(args).serialize())
+                        let Some(Type::BulkString(arg)) = args.pop() else {
+                            return Err(anyhow!("Could not pop arg from vec"));
+                        };
+                        Some(Type::BulkString(arg.to_string()).serialize())
                     }
                 }
                 Some(Command::Get)=> {
