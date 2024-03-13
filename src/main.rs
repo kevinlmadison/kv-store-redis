@@ -209,7 +209,13 @@ async fn stream_handler(mut stream: TcpStream, db: Db) -> Result<(), anyhow::Err
                     let Some(args) = frame.args_as_vec_type() else {
                         return Err(anyhow!("Could not get frame args as Vec<Type>"));
                     };
-                    Some(Type::Array(args).serialize())
+                    if args.len() > 1 {
+                        Some(Type::BulkString(
+                                "(error) Incorrect number of arguments for echo".to_string()
+                                ).serialize())
+                    } else {
+                        Some(Type::Array(args).serialize())
+                    }
                 }
                 Some(Command::Get)=> {
                     let db = db.lock().unwrap();
