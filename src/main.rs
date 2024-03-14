@@ -1,6 +1,9 @@
-use anyhow::{anyhow, Result};
-use std::str;
+use itertools::Itertools;
+use anyhow::{anyhow, bail, Context, Result};
 use bytes::Bytes;
+use std::fmt::{Formatter, Display};
+use std::str;
+use std::time::{Duration, Instant};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::{
@@ -10,80 +13,162 @@ use tokio::{
 
 
 type Cursor = usize;
-type Db = Arc<Mutex<HashMap<String, String>>>;
-
+type Db = Arc<Mutex<HashMap<String, SetValue>>>;
 
 #[derive(Debug, Clone)]
-struct Frame {
-    command: Type,
-    args: Vec<Type>,
-    resp: Type,
+enum Command {
+    Ping,
+    Echo,
+    Get,
+    Set,
 }
 
+impl TryFrom<&Type> for Command {
+    type Error = anyhow::Error;
 
-impl Frame {
-    pub fn new(buffer: &[u8]) -> Option<Self> {
-        let (resp, _) = parse_resp(buffer);
-        let resp_clone = resp.clone();
-
-        if let Type::Array(cmd_args) = resp_clone {
-            let cmd = cmd_args[0].clone(); 
-            let args: Vec<Type> = cmd_args[1..].to_vec();
-            Some(Self {
-                command: cmd,
-                args: args,
-                resp: resp,
-            })
-        } else { None }
-    }
-
-    pub fn resp_as_type(&self) -> Option<Type> {
-        Some(self.resp.clone())
-    }
-    
-    pub fn resp_as_bytes(&self) -> Option<Vec<u8>> {
-        Some(self.resp.clone().serialize())
-    }
-
-    pub fn args_as_vec_type(&self) -> Option<Vec<Type>> {
-        Some(self.args.clone())
-    }
-
-    pub fn args_as_vec(&self) -> Option<Vec<Vec<u8>>> {
-        Some(self.args.clone().into_iter().map(|v| v.serialize()).collect())
-    }
-
-    pub fn cmd_as_command(&self) -> Option<Command> {
-        parse_command(&self.command.clone())
-    }
-
-    pub fn cmd_as_type(&self) -> Option<Type> {
-        Some(self.command.clone())
-    }
-
-    pub fn cmd_as_bytes(&self) -> Option<Vec<u8>> {
-        Some(self.command.clone().serialize())
-    }
-
-    pub fn cmd_as_string(&self) -> Option<String> {
-        match self.cmd_as_command() {
-            Some(Command::Ping) => Some(String::from("ping")),
-            Some(Command::Echo) => Some(String::from("echo")),
-            Some(Command::Get)  => Some(String::from("get")),
-            Some(Command::Set)  => Some(String::from("set")),
-            _ => None,
+    fn try_from(value: &Type) -> Result<Self> {
+        match value {
+            Type::BulkString(s) => {
+                let s = s.to_lowercase();
+                if s == "ping" {
+                    Ok(Command::Ping)
+                } else if s == "echo" {
+                    Ok(Command::Echo)
+                } else if s == "set" {
+                    Ok(Command::Set)
+                } else if s == "get" {
+                    Ok(Command::Get)
+                } else {
+                    bail!("Command not supported: {}", s)
+                }
+            }
+            _ => bail!("Command parse error: {}", value.to_string()),
         }
     }
 }
 
 
-fn parse_resp(buffer: &[u8]) -> (Type, Cursor) {
-    match buffer[0] {
-        b'+' => return parse_simple_string(&buffer[1..]),
-        b'$' => return parse_bulk_string(&buffer[1..]),
-        b'*' => return parse_array(&buffer[1..]),
-        x => panic!("Invalid RESP Type: {:?}", x),
-    };
+impl TryFrom<Type> for String {
+    type Error = anyhow::Error;
+    fn try_from(value: Type) -> Result<Self> {
+        match value {
+            Type::BulkString(s) => {
+                let s = s.to_lowercase();
+                Ok(String::from(s))
+            },
+            Type::SimpleString(s) => {
+                let s = s.to_lowercase();
+                Ok(String::from(s))
+            },
+            _ => bail!("Command parse error: {}", value.to_string()),
+        }
+    }
+}
+
+
+#[derive(Debug, Clone)]
+struct Frame {
+    command: Command,
+    args: Option<Vec<String>>,
+    resp: Type,
+}
+
+
+impl Frame {
+    pub fn new(buffer: &[u8]) -> Result<Self> {
+        let (resp, _) = parse_resp(buffer);
+        let resp_clone = resp.clone();
+
+        let Type::Array(tokens) = resp_clone else {
+            bail!("unable to parse tokens from array")
+        };
+        // let cmd = cmd_args[0].clone(); 
+        let cmd = tokens.first().context("parsing first token for command")?;
+        let cmd: Command = cmd.try_into().context("parsing command string")?;
+        match cmd {
+            Command::Ping => {
+                Ok(Self {
+                    command: cmd,
+                    args: None,
+                    resp: resp,
+                })
+            },
+            Command::Echo => {
+                let (_, arg) = tokens
+                    .into_iter()
+                    .collect_tuple()
+                    .context("parsing argument for echo command")?;
+                let arg = arg.try_into().context("parsing arg from Type")?;
+
+                Ok(Self {
+                    command: cmd,
+                    args: Some(vec!(arg)),
+                    resp: resp,
+                })
+            }
+            Command::Get => {
+                let (_, arg) = tokens
+                    .into_iter()
+                    .collect_tuple()
+                    .context("parsing argument for get command")?;
+                let arg = arg.try_into().context("parsing arg from Type")?;
+
+                Ok(Self {
+                    command: cmd,
+                    args: Some(vec!(arg)),
+                    resp: resp,
+                })
+            }
+            Command::Set => {
+                if tokens.len() == 3 {
+                    let (_, key, val) = tokens
+                        .into_iter()
+                        .collect_tuple()
+                        .context("parsing argument for set command")?;
+                    let key = key.try_into().context("parsing key from Type")?;
+                    let val = val.try_into().context("parsing val from Type")?;
+
+                    Ok(Self {
+                        command: cmd,
+                        args: Some(vec![key, val]),
+                        resp: resp,
+                    })
+                }
+                else if tokens.len() == 5 {
+                    let (_, key, val, xp, dur) = tokens
+                        .into_iter()
+                        .collect_tuple()
+                        .context("parsing argument for set command")?;
+                    let key = key.try_into().context("parsing key from Type")?;
+                    let val = val.try_into().context("parsing val from Type")?;
+                    let xp = xp.try_into().context("parsing xp from Type")?;
+                    let dur = dur.try_into().context("parsing duration from Type")?;
+
+                    Ok(Self {
+                        command: cmd,
+                        args: Some(vec![key, val, xp, dur]),
+                        resp: resp,
+                    })
+                }
+                else {
+                    bail!("Set command can only handle 2 or 4 arguments currently");
+                }
+            }
+            _ => bail!("Failed to parse a command"),
+        }
+    }
+
+    pub fn command(&self) -> Command {
+        self.command.clone()
+    }
+
+    pub fn resp(&self) -> Type {
+        self.resp.clone()
+    }
+
+    pub fn args(&self) -> Option<Vec<String>> {
+        self.args.clone()
+    }
 }
 
 
@@ -91,15 +176,34 @@ fn parse_resp(buffer: &[u8]) -> (Type, Cursor) {
 enum Type {
     SimpleString(String),
     BulkString(String),
+    NullBulkString,
+    Integer(String),
     Array(Vec<Type>),
 }
 
+
+impl Display for Type {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Type::Array(items) => {
+        let elements: String = items.iter().map(|e| e.to_string()).collect();
+        f.write_fmt(format_args!("*{}\r\n{}", items.len(), elements))
+      }
+      Type::SimpleString(s) => f.write_fmt(format_args!("+{}\r\n", s)),
+      Type::BulkString(s) => f.write_fmt(format_args!("${}\r\n{}\r\n", s.len(), s)),
+      Type::NullBulkString => f.write_fmt(format_args!("$-1\r\n")),
+      Type::Integer(i) => f.write_fmt(format_args!(":{}\r\n", i)),
+    }
+  }
+}
 
 impl Type {
     pub fn serialize(self) -> Vec<u8> {
         match self {
             Type::SimpleString(s) => format!("+{}\r\n", s).into_bytes(),
             Type::BulkString(s) => format!("${}\r\n{}\r\n", s.len(), s).into_bytes(),
+            Type::NullBulkString => format!("$-1\r\n").into_bytes(),
+            Type::Integer(s) => format!(":{}\r\n", s).into_bytes(),
             Type::Array(elems) => {
                 let mut prefix = format!("*{}\r\n", elems.len()).into_bytes();
                 let s: Vec<u8> = elems.into_iter().flat_map(|v| v.serialize()).collect();
@@ -111,25 +215,36 @@ impl Type {
 }
 
 
-#[derive(Debug)]
-enum Command {
-    Ping,
-    Echo,
-    Get,
-    Set,
+#[derive(Debug, Clone)]
+struct SetValue {
+    value: String,
+    expiry: Option<Instant>,
+}
+
+impl SetValue {
+    pub fn new(s: String) -> Self {
+        Self {
+            value: s,
+            expiry: None,
+        }
+    }
+
+    pub fn new_with_expiry(s: String, ex: Duration) -> Self {
+        Self {
+            value: s,
+            expiry: Some(Instant::now() + ex),
+        }
+    }
 }
 
 
-impl Command {
-    pub fn from_string(s: &String) -> Option<Command> {
-        match s.to_lowercase().as_str() {
-            "ping" => Some(Command::Ping),
-            "echo" => Some(Command::Echo),
-            "get"  => Some(Command::Get),
-            "set"  => Some(Command::Set),
-            _ => None,
-        }
-    }
+fn parse_integer(buffer: &[u8]) -> (Type, Cursor) {
+    let (val, cursor) = parse_crlf(buffer);
+    let val = str::from_utf8(&val).unwrap();
+    return (
+        Type::Integer(val.to_string()),
+        cursor
+    );
 }
 
 
@@ -184,77 +299,125 @@ fn parse_usize(buffer: &[u8]) -> usize {
 }
 
 
-fn parse_command(resp: &Type) -> Option<Command> {
-    match resp {
-        Type::SimpleString(s) => Command::from_string(s),
-        Type::BulkString(s) => Command::from_string(s),
-        Type::Array(elems) => parse_command(&elems[0]),
+fn parse_resp(buffer: &[u8]) -> (Type, Cursor) {
+    match buffer[0] {
+        b'+' => return parse_simple_string(&buffer[1..]),
+        b'$' => return parse_bulk_string(&buffer[1..]),
+        b':' => return parse_integer(&buffer[1..]),
+        b'*' => return parse_array(&buffer[1..]),
+        x => panic!("Invalid RESP Type: {:?}", x),
+    };
+}
+
+
+fn handle_get(frame: Frame, db: &Db) -> Result<Vec<u8>> {
+    let db = db.lock().unwrap();
+    let Some(args) = frame.args() else {
+        bail!("Could not get frame args as Vec<Type>");
+    };
+    if args.len() > 1 {
+        return Ok(Type::BulkString(
+                "(error) Incorrect number of arguments for get".to_string()
+                ).serialize());
+    }
+
+    let key = args.first().context("getting get key")?;
+    let Some(val) = db.get(key) else {
+        return Ok(Type::NullBulkString.serialize());
+    };
+
+    match val.expiry {
+        Some(expiry) => {
+            if expiry <= Instant::now() {
+                return Ok(Type::NullBulkString.serialize());
+            } else {
+                return Ok(Type::BulkString(val.value.to_string()).serialize());
+            }
+        }
+        None => {
+            return Ok(Type::BulkString(val.value.to_string()).serialize());
+        }
     }
 }
 
 
-async fn stream_handler(mut stream: TcpStream, db: Db) -> Result<(), anyhow::Error> {
+fn handle_set(frame: Frame, db: &Db) -> Result<Vec<u8>> {
+
+    println!("handling set command");
+    let mut db = db.lock().unwrap();
+    let Some(args) = frame.args() else {
+        return Err(anyhow!("Could not get frame args as Vec<Type>"));
+    };
+    if args.len() == 2 {
+        let (key, val) = args
+            .into_iter()
+            .collect_tuple()
+            .context("parsing argument for set command")?;
+        let set_val = SetValue::new(val);
+        db.insert(key, set_val);
+    }
+    else if args.len() == 4 {
+        let (key, val, xp, dur) = args
+            .into_iter()
+            .collect_tuple()
+            .context("parsing argument for set command")?;
+        if xp.to_lowercase().to_string() != "xp" {
+            bail!("can only support xp as extra command for set");
+        } 
+        let dur = dur.parse::<u64>().context("parsing u64 from string")?;
+        let set_val = SetValue::new_with_expiry(val, Duration::from_millis(dur));
+        db.insert(key, set_val);
+    }
+    else {
+        println!("incorrect arg count");
+    }
+    Ok(Type::SimpleString("OK".to_string()).serialize())
+}
+
+
+fn create_response(frame: Frame, db: &Db) -> Result<Vec<u8>> {
+    match frame.command() {
+
+        Command::Ping => {
+            return Ok(Type::SimpleString("PONG".to_string()).serialize());
+        },
+
+        Command::Echo => {
+            let Some(args) = frame.args() else {
+                bail!("Could not get frame args as Vec<Type>");
+            };
+            if args.len() > 1 {
+                return Ok(Type::BulkString(
+                        "(error) Incorrect number of arguments for echo".to_string())
+                        .serialize());
+            } else {
+                let arg = args.first().context("getting echo arg")?;
+                return Ok(Type::BulkString(arg.to_string()).serialize());
+            }
+        },
+
+        Command::Get=> {
+            return handle_get(frame, db);
+        },
+
+        Command::Set => {
+            return handle_set(frame, db);
+        },
+    }
+}
+
+async fn stream_handler(mut stream: TcpStream, db: Db) -> Result<()> {
     let mut buffer: [u8; 1024] = [0; 1024];
     loop {
         if let Ok(len) = stream.read(&mut buffer).await {
             if len == 0 { return Err(anyhow!("No bytes read from stream!")); }
 
-            let Some(frame) = Frame::new(&buffer) else {
-                return Err(anyhow!("Could not create new frame from buffer"));
-            };
-            let Some(response) = (match frame.cmd_as_command() {
+            let frame = Frame::new(&buffer).context("creating frame from buffer")?;
+            let response = create_response(frame, &db).context("getting response from frame")?;
 
-                Some(Command::Ping) => Some(Type::SimpleString("PONG".to_string()).serialize()),
-                Some(Command::Echo) => {
-                    let Some(mut args) = frame.args_as_vec_type() else {
-                        return Err(anyhow!("Could not get frame args as Vec<Type>"));
-                    };
-                    if args.len() > 1 {
-                        Some(Type::BulkString(
-                                "(error) Incorrect number of arguments for echo".to_string()
-                                ).serialize())
-                    } else {
-                        // Some(Type::Array(args).serialize())
-                        let Some(Type::BulkString(arg)) = args.pop() else {
-                            return Err(anyhow!("Could not pop arg from vec"));
-                        };
-                        Some(Type::BulkString(arg.to_string()).serialize())
-                    }
-                }
-                Some(Command::Get)=> {
-                    let db = db.lock().unwrap();
-                    let Some(mut args) = frame.args_as_vec_type() else {
-                        return Err(anyhow!("Could not get frame args as Vec<Type>"));
-                    };
-                    let Some(Type::BulkString(key)) = args.pop() else {
-                        return Err(anyhow!("Could not pop arg from vec"));
-                    };
-                    let Some(val) = db.get(&key) else {
-                        return Err(anyhow!("Could not get item from kv store"));
-                    };
-                    println!("{:?}", val);
-                    Some(Type::BulkString(val.to_string()).serialize())
-                },
-                Some(Command::Set) => {
-                    let mut db = db.lock().unwrap();
-                    let Some(mut args) = frame.args_as_vec_type() else {
-                        return Err(anyhow!("Could not get frame args as Vec<Type>"));
-                    };
-                    let Some(Type::BulkString(val)) = args.pop() else {
-                        return Err(anyhow!("Could not pop val from vec"));
-                    };
-                    let Some(Type::BulkString(key)) = args.pop() else {
-                        return Err(anyhow!("Could not pop key from vec"));
-                    };
-                    db.insert(key, val);
-                    Some(Type::SimpleString("OK".to_string()).serialize())
-                },
-                _ => None,
-            }) else {
-                return Err(anyhow!("Could not match on frame arguments"));
-            };
-            println!("response: {:?}", str::from_utf8(&response[..]).unwrap());
-            stream.write_all(&response[..]).await.unwrap();
+            let response_slice = &response[..];
+            println!("response: {:?}", str::from_utf8(response_slice).unwrap());
+            stream.write_all(response_slice).await.unwrap();
         }
     }
 }
