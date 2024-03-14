@@ -135,18 +135,18 @@ impl Frame {
                     })
                 }
                 else if tokens.len() == 5 {
-                    let (_, key, val, xp, dur) = tokens
+                    let (_, key, val, px, dur) = tokens
                         .into_iter()
                         .collect_tuple()
                         .context("parsing argument for set command")?;
                     let key = key.try_into().context("parsing key from Type")?;
                     let val = val.try_into().context("parsing val from Type")?;
-                    let xp = xp.try_into().context("parsing xp from Type")?;
+                    let px = px.try_into().context("parsing px from Type")?;
                     let dur = dur.try_into().context("parsing duration from Type")?;
 
                     Ok(Self {
                         command: cmd,
-                        args: Some(vec![key, val, xp, dur]),
+                        args: Some(vec![key, val, px, dur]),
                         resp: resp,
                     })
                 }
@@ -357,12 +357,12 @@ fn handle_set(frame: Frame, db: &Db) -> Result<Vec<u8>> {
         db.insert(key, set_val);
     }
     else if args.len() == 4 {
-        let (key, val, xp, dur) = args
+        let (key, val, px, dur) = args
             .into_iter()
             .collect_tuple()
             .context("parsing argument for set command")?;
-        if xp.to_lowercase().to_string() != "xp" {
-            bail!("can only support xp as extra command for set");
+        if px.to_lowercase().to_string() != "px" {
+            bail!("can only support px as extra command for set");
         } 
         let dur = dur.parse::<u64>().context("parsing u64 from string")?;
         let set_val = SetValue::new_with_expiry(val, Duration::from_millis(dur));
