@@ -1,6 +1,7 @@
 use crate::frame::*;
 use crate::command::*;
 use crate::resptype::*;
+use crate::info::*;
 use itertools::Itertools;
 use anyhow::{anyhow, bail, Context, Result};
 use std::time::{Duration, Instant};
@@ -98,7 +99,7 @@ fn handle_set(frame: Frame, db: &Db) -> Result<Vec<u8>> {
 }
 
 
-pub fn create_response(frame: Frame, db: &Db) -> Result<Vec<u8>> {
+pub fn create_response(frame: Frame, db: &Db, info_db: &InfoDb) -> Result<Vec<u8>> {
     match frame.command() {
 
         Command::Ping => {
@@ -126,6 +127,10 @@ pub fn create_response(frame: Frame, db: &Db) -> Result<Vec<u8>> {
         Command::Set => {
             return handle_set(frame, db);
         },
+
+        Command::Info => {
+            return handle_info(frame, info_db);
+        }
     }
 }
 

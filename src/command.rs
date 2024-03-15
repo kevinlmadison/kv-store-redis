@@ -8,6 +8,7 @@ pub enum Command {
     Echo,
     Get,
     Set,
+    Info,
 }
 
 impl TryFrom<&Type> for Command {
@@ -25,6 +26,8 @@ impl TryFrom<&Type> for Command {
                     Ok(Command::Set)
                 } else if s == "get" {
                     Ok(Command::Get)
+                } else if s == "info" {
+                    Ok(Command::Info)
                 } else {
                     bail!("Command not supported: {}", s)
                 }

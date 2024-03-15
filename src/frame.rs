@@ -47,7 +47,7 @@ impl Frame {
                     args: Some(vec!(arg)),
                     resp: resp,
                 })
-            }
+            },
             Command::Get => {
                 let (_, arg) = tokens
                     .into_iter()
@@ -60,7 +60,7 @@ impl Frame {
                     args: Some(vec!(arg)),
                     resp: resp,
                 })
-            }
+            },
             Command::Set => {
                 if tokens.len() == 3 {
                     let (_, key, val) = tokens
@@ -95,7 +95,21 @@ impl Frame {
                 else {
                     bail!("Set command can only handle 2 or 4 arguments currently");
                 }
-            }
+            },
+            Command::Info => {
+                println!("got here");
+                let (_, arg) = tokens
+                    .into_iter()
+                    .collect_tuple()
+                    .context("parsing argument for echo command")?;
+                let arg = arg.try_into().context("parsing arg from Type")?;
+
+                Ok(Self {
+                    command: cmd,
+                    args: Some(vec!(arg)),
+                    resp: resp,
+                })
+            },
             _ => bail!("Failed to parse a command"),
         }
     }
