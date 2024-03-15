@@ -97,18 +97,30 @@ impl Frame {
                 }
             },
             Command::Info => {
-                println!("got here");
-                let (_, arg) = tokens
-                    .into_iter()
-                    .collect_tuple()
-                    .context("parsing argument for echo command")?;
-                let arg = arg.try_into().context("parsing arg from Type")?;
+                if tokens.len() == 1 {
 
-                Ok(Self {
-                    command: cmd,
-                    args: Some(vec!(arg)),
-                    resp: resp,
-                })
+                    Ok(Self {
+                        command: cmd,
+                        args: None,
+                        resp: resp,
+                    })
+                }
+                else if tokens.len() == 2 {
+                    let (_, arg) = tokens
+                        .into_iter()
+                        .collect_tuple()
+                        .context("parsing argument for info command")?;
+                    let arg = arg.try_into().context("parsing arg from Type")?;
+
+                    Ok(Self {
+                        command: cmd,
+                        args: Some(vec!(arg)),
+                        resp: resp,
+                    })
+                }
+                else {
+                    bail!("Info command can only handle 0 or 1 arguments currently");
+                }
             },
             _ => bail!("Failed to parse a command"),
         }

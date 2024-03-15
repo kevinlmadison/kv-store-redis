@@ -132,15 +132,23 @@ pub fn handle_info(frame: Frame, info_db: &InfoDb) -> Result<Vec<u8>> {
             let query = args
                 .pop()
                 .context("parsing argument for info command")?;
-            if query.to_lowercase().to_string() != "replication" {
-                bail!("can only support replication as arg for info");
+            match query.to_lowercase().as_str() {
+                "replication" => {
+                    return info_query(query.try_into()?, info_db);
+                },
+                "all" => {
+                    return info_query(query.try_into()?, info_db);
+                },
+                _ => {
+                    bail!("can only support replication as arg for info");
+                },
             } 
-            return info_query(query.try_into()?, info_db);
+        } else {
+            return info_query("all".try_into()?, info_db);
         }
     } else {
-        return info_query("replication".try_into()?, info_db);
+        return info_query("all".try_into()?, info_db);
     }
-    Ok(Type::SimpleString("OK".to_string()).serialize())
 }
 
 

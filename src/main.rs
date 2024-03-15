@@ -27,8 +27,13 @@ async fn stream_handler(mut stream: TcpStream, db: Db, info_db: InfoDb) -> Resul
         if let Ok(len) = stream.read(&mut buffer).await {
             if len == 0 { bail!("No bytes read from stream!"); }
 
-            let frame = Frame::new(&buffer).context("creating frame from buffer")?;
-            let response = create_response(frame, &db, &info_db).context("getting response from frame")?;
+            let frame = Frame::new(&buffer)
+                .context("creating frame from buffer")
+                .unwrap();
+
+            let response = create_response(frame, &db, &info_db)
+                .context("getting response from frame")
+                .unwrap();
 
             let response_slice = &response[..];
             println!("response: {:?}", str::from_utf8(response_slice).unwrap());
