@@ -54,7 +54,7 @@ async fn main() {
     println!("Listening at {}", &bind_addr);
     let db = Arc::new(Mutex::new(HashMap::new()));
     let info_db = Arc::new(Mutex::new(HashMap::new()));
-    let _ = init_info_db(&info_db);
+    let _: () = init_info_db(&info_db, &args).unwrap();
 
     loop {
         match listener.accept().await {

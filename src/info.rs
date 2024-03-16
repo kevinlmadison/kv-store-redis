@@ -2,28 +2,46 @@ use crate::frame::*;
 use crate::command::*;
 use crate::resptype::*;
 use crate::response::*;
+use crate::flags::*;
 use itertools::Itertools;
 use anyhow::{anyhow, bail, Context, Result};
 use std::time::{Duration, Instant};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-const DEFAULTS: [(&str, &str); 4] = [
+const MASTER_DEFAULTS: [(&str, &str); 5] = [
     ("role", "master"),
+    ("tcp_port", "6379"),
     ("connected_slaves", "0"),
     ("master_replid", "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"),
     ("master_repl_offset", "0")
 ];
 
-const ALL_ARGS: [&str; 4] = [
+const SLAVE_DEFAULTS: [(&str, &str); 7] = [
+    ("role", "slave"),
+    ("tcp_port", "6380"),
+    ("master_host", "127.0.0.1"),
+    ("master_port", "6379"),
+    ("connected_slaves", "0"),
+    ("master_replid", "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"),
+    ("master_repl_offset", "0")
+];
+
+const ALL_ARGS: [&str; 7] = [
     "role",
+    "tcp_port",
+    "master_host",
+    "master_port",
     "connected_slaves",
     "master_replid",
     "master_repl_offset"
 ];
 
-const REPLICATION_ARGS: [&str; 4] = [
+const REPLICATION_ARGS: [&str; 7] = [
     "role",
+    "tcp_port",
+    "master_host",
+    "master_port",
     "connected_slaves",
     "master_replid",
     "master_repl_offset"
@@ -31,13 +49,29 @@ const REPLICATION_ARGS: [&str; 4] = [
 
 pub type InfoDb = Arc<Mutex<HashMap<String, String>>>;
 
-pub fn init_info_db(info_db: &InfoDb) -> Result<()> {
-    let defaults = DEFAULTS.to_vec();
+pub fn init_info_db(info_db: &InfoDb, args: &Args) -> Result<()> {
+    let defaults: Vec<(&str, &str)> = match args.replicaof {
+        Some(_) => SLAVE_DEFAULTS.to_vec(),
+        None => MASTER_DEFAULTS.to_vec(),
+    };
     let mut info_db = info_db.lock().unwrap();
 
     for (k, v) in defaults {
         info_db.insert(k.to_owned(), v.to_owned());
     }
+    if let Some(tokens) = &args.replicaof {
+        let (host, port) = tokens
+            .into_iter()
+            .collect_tuple()
+            .context("parsing arguments for --replicaof flag")?;
+        let host: String = host.try_into().context("parsing host from &str")?;
+        let port: String = port.try_into().context("parsing port from &str")?;
+        info_db.insert("master_host".to_owned(), host.to_owned());
+        info_db.insert("master_port".to_owned(), port.to_owned());
+    }
+
+    info_db.insert("tcp_port".to_owned(), args.port.to_owned());
+
     Ok(())
 }
 
@@ -90,7 +124,10 @@ fn info_query(query: InfoQuery, info_db: &InfoDb) -> Result<Vec<u8>> {
             let info_db = info_db.lock().unwrap();
 
             let rv = rv.iter()
-                .map(|k| k.to_owned() + ":" + info_db.get(k).unwrap().as_str() + "\n")
+                .map(|k| k.to_owned()
+                    + ":" 
+                    + info_db.get(k).unwrap_or(&"(nil)".to_string()).as_str() 
+                    + "\n")
                 .collect::<Vec<String>>();
 
             let rv = rv.iter()
@@ -109,7 +146,10 @@ fn info_query(query: InfoQuery, info_db: &InfoDb) -> Result<Vec<u8>> {
             let info_db = info_db.lock().unwrap();
 
             let rv = rv.iter()
-                .map(|k| k.to_owned() + ":" + info_db.get(k).unwrap().as_str() + "\n")
+                .map(|k| k.to_owned()
+                    + ":"
+                    + info_db.get(k).unwrap_or(&"(nil)".to_string()).as_str() 
+                    + "\n")
                 .collect::<Vec<String>>();
 
             let rv = rv.iter()
