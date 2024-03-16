@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+
 const MASTER_DEFAULTS: [(&str, &str); 5] = [
     ("role", "master"),
     ("tcp_port", "6379"),
