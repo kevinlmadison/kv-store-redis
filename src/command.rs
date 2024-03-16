@@ -9,6 +9,7 @@ pub enum Command {
     Get,
     Set,
     Info,
+    ReplConf,
 }
 
 impl TryFrom<&Type> for Command {
@@ -27,6 +28,8 @@ impl TryFrom<&Type> for Command {
                 } else if s == "get" {
                     Ok(Command::Get)
                 } else if s == "info" {
+                    Ok(Command::Info)
+                } else if s == "replconf" {
                     Ok(Command::Info)
                 } else {
                     bail!("Command not supported: {}", s)

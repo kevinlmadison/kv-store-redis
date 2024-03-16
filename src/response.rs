@@ -130,6 +130,10 @@ pub fn create_response(frame: Frame, db: &Db, info_db: &InfoDb) -> Result<Vec<u8
 
         Command::Info => {
             return handle_info(frame, info_db);
+        },
+
+        Command::ReplConf => {
+            Ok(Type::SimpleString("OK".to_string()).serialize())
         }
     }
 }

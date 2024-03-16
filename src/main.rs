@@ -58,7 +58,7 @@ async fn main() {
             .collect_tuple()
             .context("parsing arguments for --replicaof flag")
             .unwrap();
-        let _ = handshake(host, port).await.unwrap();
+        let _ = handshake(host, port, &args.port).await.unwrap();
     }
 
     let listener = TcpListener::bind(&bind_addr).await.unwrap();

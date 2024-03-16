@@ -122,6 +122,25 @@ impl Frame {
                     bail!("Info command can only handle 0 or 1 arguments currently");
                 }
             },
+            Command::ReplConf => {
+                if tokens.len() == 3 {
+                    let (_, arg1, arg2) = tokens
+                        .into_iter()
+                        .collect_tuple()
+                        .context("parsing argument for info command")?;
+                    let arg1 = arg1.try_into().context("parsing arg from Type")?;
+                    let arg2 = arg2.try_into().context("parsing arg from Type")?;
+
+                    Ok(Self {
+                        command: cmd,
+                        args: Some(vec![arg1, arg2]),
+                        resp: resp,
+                    })
+                }
+                else {
+                    bail!("ReplConf command can only handle 2 arguments currently");
+                }
+            },
             _ => bail!("Failed to parse a command"),
         }
     }
