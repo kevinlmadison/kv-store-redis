@@ -1,6 +1,7 @@
 use clap::Parser;
 use std::fmt::{Formatter};
 use anyhow::{bail, Context, Result};
+use itertools::Itertools;
 use std::str;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -15,11 +16,13 @@ mod response;
 mod resptype;
 mod flags;
 mod info;
+mod handshake;
 
 use frame::*;
 use response::*;
 use flags::*;
 use info::*;
+use handshake::*;
 
 async fn stream_handler(mut stream: TcpStream, db: Db, info_db: InfoDb) -> Result<()> {
     let mut buffer: [u8; 1024] = [0; 1024];
@@ -49,6 +52,14 @@ async fn main() {
 
     let args = Args::parse();
     let bind_addr = format!("{}:{}", args.addr, args.port);
+    if let Some(tokens) = &args.replicaof {
+        let (host, port) = tokens
+            .into_iter()
+            .collect_tuple()
+            .context("parsing arguments for --replicaof flag")
+            .unwrap();
+        let _ = handshake(host, port).await.unwrap();
+    }
 
     let listener = TcpListener::bind(&bind_addr).await.unwrap();
     println!("Listening at {}", &bind_addr);
