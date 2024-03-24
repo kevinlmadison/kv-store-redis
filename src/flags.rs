@@ -12,4 +12,7 @@ pub struct Args {
     #[arg(short, long, default_value_t = String::from("6379"))]
     pub port: String,
 
+    #[arg(required = false, short, long, num_args = 2)]
+    pub replicaof: Option<Vec<String>>,
+
 }
