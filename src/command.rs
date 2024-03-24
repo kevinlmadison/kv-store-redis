@@ -1,7 +1,6 @@
 use crate::resptype::*;
 use anyhow::{bail, Context, Result};
 
-
 #[derive(Debug, Clone)]
 pub enum Command {
     Ping,
@@ -10,6 +9,7 @@ pub enum Command {
     Set,
     Info,
     ReplConf,
+    PSync,
 }
 
 impl TryFrom<&Type> for Command {
@@ -30,7 +30,9 @@ impl TryFrom<&Type> for Command {
                 } else if s == "info" {
                     Ok(Command::Info)
                 } else if s == "replconf" {
-                    Ok(Command::Info)
+                    Ok(Command::ReplConf)
+                } else if s == "psync" {
+                    Ok(Command::PSync)
                 } else {
                     bail!("Command not supported: {}", s)
                 }

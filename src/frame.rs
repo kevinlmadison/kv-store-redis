@@ -1,12 +1,10 @@
-use crate::resptype::*;
 use crate::command::*;
-use itertools::Itertools;
+use crate::resptype::*;
 use anyhow::{bail, Context, Result};
+use itertools::Itertools;
 use std::str;
 
-
 pub type Cursor = usize;
-
 
 #[derive(Debug, Clone)]
 pub struct Frame {
@@ -14,7 +12,6 @@ pub struct Frame {
     args: Option<Vec<String>>,
     resp: Type,
 }
-
 
 impl Frame {
     pub fn new(buffer: &[u8]) -> Result<Self> {
@@ -24,17 +21,15 @@ impl Frame {
         let Type::Array(tokens) = resp_clone else {
             bail!("unable to parse tokens from array")
         };
-        // let cmd = cmd_args[0].clone(); 
+        // let cmd = cmd_args[0].clone();
         let cmd = tokens.first().context("parsing first token for command")?;
         let cmd: Command = cmd.try_into().context("parsing command string")?;
         match cmd {
-            Command::Ping => {
-                Ok(Self {
-                    command: cmd,
-                    args: None,
-                    resp: resp,
-                })
-            },
+            Command::Ping => Ok(Self {
+                command: cmd,
+                args: None,
+                resp: resp,
+            }),
             Command::Echo => {
                 let (_, arg) = tokens
                     .into_iter()
@@ -44,10 +39,10 @@ impl Frame {
 
                 Ok(Self {
                     command: cmd,
-                    args: Some(vec!(arg)),
+                    args: Some(vec![arg]),
                     resp: resp,
                 })
-            },
+            }
             Command::Get => {
                 let (_, arg) = tokens
                     .into_iter()
@@ -57,10 +52,10 @@ impl Frame {
 
                 Ok(Self {
                     command: cmd,
-                    args: Some(vec!(arg)),
+                    args: Some(vec![arg]),
                     resp: resp,
                 })
-            },
+            }
             Command::Set => {
                 if tokens.len() == 3 {
                     let (_, key, val) = tokens
@@ -75,8 +70,7 @@ impl Frame {
                         args: Some(vec![key, val]),
                         resp: resp,
                     })
-                }
-                else if tokens.len() == 5 {
+                } else if tokens.len() == 5 {
                     let (_, key, val, px, dur) = tokens
                         .into_iter()
                         .collect_tuple()
@@ -91,21 +85,18 @@ impl Frame {
                         args: Some(vec![key, val, px, dur]),
                         resp: resp,
                     })
-                }
-                else {
+                } else {
                     bail!("Set command can only handle 2 or 4 arguments currently");
                 }
-            },
+            }
             Command::Info => {
                 if tokens.len() == 1 {
-
                     Ok(Self {
                         command: cmd,
                         args: None,
                         resp: resp,
                     })
-                }
-                else if tokens.len() == 2 {
+                } else if tokens.len() == 2 {
                     let (_, arg) = tokens
                         .into_iter()
                         .collect_tuple()
@@ -114,20 +105,19 @@ impl Frame {
 
                     Ok(Self {
                         command: cmd,
-                        args: Some(vec!(arg)),
+                        args: Some(vec![arg]),
                         resp: resp,
                     })
-                }
-                else {
+                } else {
                     bail!("Info command can only handle 0 or 1 arguments currently");
                 }
-            },
+            }
             Command::ReplConf => {
                 if tokens.len() == 3 {
                     let (_, arg1, arg2) = tokens
                         .into_iter()
                         .collect_tuple()
-                        .context("parsing argument for info command")?;
+                        .context("parsing argument for replconf command")?;
                     let arg1 = arg1.try_into().context("parsing arg from Type")?;
                     let arg2 = arg2.try_into().context("parsing arg from Type")?;
 
@@ -136,11 +126,28 @@ impl Frame {
                         args: Some(vec![arg1, arg2]),
                         resp: resp,
                     })
-                }
-                else {
+                } else {
                     bail!("ReplConf command can only handle 2 arguments currently");
                 }
-            },
+            }
+            Command::PSync => {
+                if tokens.len() == 3 {
+                    let (_, arg1, arg2) = tokens
+                        .into_iter()
+                        .collect_tuple()
+                        .context("parsing argument for psync command")?;
+                    let arg1 = arg1.try_into().context("parsing arg from Type")?;
+                    let arg2 = arg2.try_into().context("parsing arg from Type")?;
+
+                    Ok(Self {
+                        command: cmd,
+                        args: Some(vec![arg1, arg2]),
+                        resp: resp,
+                    })
+                } else {
+                    bail!("PSync command can only handle 2 arguments currently");
+                }
+            }
             _ => bail!("Failed to parse a command"),
         }
     }
@@ -158,36 +165,29 @@ impl Frame {
     }
 }
 
-
 fn parse_integer(buffer: &[u8]) -> (Type, Cursor) {
     let (val, cursor) = parse_crlf(buffer);
     let val = str::from_utf8(&val).unwrap();
-    return (
-        Type::Integer(val.to_string()),
-        cursor
-    );
+    return (Type::Integer(val.to_string()), cursor);
 }
-
 
 fn parse_simple_string(buffer: &[u8]) -> (Type, Cursor) {
     let (val, cursor) = parse_crlf(buffer);
     return (
         Type::SimpleString(str::from_utf8(&val).unwrap().to_string()),
-        cursor
+        cursor,
     );
 }
-
 
 fn parse_bulk_string(buffer: &[u8]) -> (Type, Cursor) {
     let (len_raw, cursor) = parse_crlf(buffer);
     let len = parse_usize(len_raw);
     let val = &buffer[cursor..(cursor + len)];
-    return(
+    return (
         Type::BulkString(str::from_utf8(&val).unwrap().to_string()),
-        cursor + len + 2
+        cursor + len + 2,
     );
 }
-
 
 fn parse_array(buffer: &[u8]) -> (Type, Cursor) {
     let (num_elems_raw, mut cursor) = parse_crlf(buffer);
@@ -198,12 +198,8 @@ fn parse_array(buffer: &[u8]) -> (Type, Cursor) {
         cursor += cursor_new + 1;
         rv.push(elem);
     }
-    return(
-        Type::Array(rv),
-        cursor
-    );
+    return (Type::Array(rv), cursor);
 }
-
 
 fn parse_crlf(buffer: &[u8]) -> (&[u8], Cursor) {
     let mut i: usize = 0;
@@ -213,12 +209,10 @@ fn parse_crlf(buffer: &[u8]) -> (&[u8], Cursor) {
     return (&buffer[..i], (i + 2).min(buffer.len()));
 }
 
-
 fn parse_usize(buffer: &[u8]) -> usize {
     let num_elems_str = str::from_utf8(buffer).expect("parse usize: from utf8");
     num_elems_str.parse::<usize>().expect("parse usize: rv")
 }
-
 
 fn parse_resp(buffer: &[u8]) -> (Type, Cursor) {
     match buffer[0] {
@@ -229,4 +223,3 @@ fn parse_resp(buffer: &[u8]) -> (Type, Cursor) {
         x => panic!("Invalid RESP Type: {:?}", x),
     };
 }
-

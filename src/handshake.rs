@@ -1,35 +1,67 @@
-use std::fmt::{Formatter};
-use anyhow::{bail, Context, Result};
-use std::str;
-use tokio::{
-    io::{AsyncWriteExt, AsyncReadExt},
-    net::{TcpListener, TcpStream},
-};
-
 use crate::resptype::*;
-use crate::flags::*;
-use crate::info::*;
+use anyhow::{bail, Result};
+use std::str;
+use tokio::{io, io::AsyncReadExt, io::AsyncWriteExt, net::TcpStream};
+
+type WriteHalf = io::WriteHalf<TcpStream>;
+type ReadHalf = io::ReadHalf<TcpStream>;
+
+async fn send_and_receive(msg: Vec<u8>, rd: &mut ReadHalf, wr: &mut WriteHalf) -> Result<()> {
+    if let Ok(_) = wr.write_all(&msg[..]).await {
+        let mut buffer: [u8; 1024] = [0; 1024];
+
+        let len = rd.read(&mut buffer).await?;
+
+        if len == 0 {
+            bail!("Nothing read from read buffer")
+        }
+
+        println!(
+            "Handshake: {:?} Received",
+            str::from_utf8(&buffer[..len]).unwrap()
+        );
+    }
+    Ok(())
+}
 
 pub async fn handshake(host_addr: &str, host_port: &str, local_port: &str) -> Result<()> {
-    let bind_addr = host_addr.to_string() + ":" + host_port;
-    let mut stream = TcpStream::connect(&bind_addr).await.unwrap();
+    let bind_addr: String = host_addr.to_string() + ":" + host_port;
+    let stream: TcpStream = TcpStream::connect(&bind_addr).await.unwrap();
+    let (mut rd, mut wr) = io::split(stream);
 
-    let ping = Type::Array(vec!(Type::BulkString("ping".to_string()))).serialize();
-    stream.write_all(&ping[..]).await.unwrap();
+    let mut handshake_args: Vec<Vec<u8>> = Vec::new();
+    handshake_args.push(Type::Array(vec![Type::BulkString("ping".to_string())]).serialize());
 
-    let replconf = Type::Array(vec![
-        Type::BulkString("replconf".to_string()),
-        Type::BulkString("listening-port".to_string()),
-        Type::BulkString(local_port.to_string())
-    ]).serialize();
-    stream.write_all(&replconf[..]).await.unwrap();
+    handshake_args.push(
+        Type::Array(vec![
+            Type::BulkString("replconf".to_string()),
+            Type::BulkString("listening-port".to_string()),
+            Type::BulkString(local_port.to_string()),
+        ])
+        .serialize(),
+    );
 
-    let replconf = Type::Array(vec![
-        Type::BulkString("replconf".to_string()),
-        Type::BulkString("capa".to_string()),
-        Type::BulkString("psync".to_string())
-    ]).serialize();
-    stream.write_all(&replconf[..]).await.unwrap();
+    handshake_args.push(
+        Type::Array(vec![
+            Type::BulkString("replconf".to_string()),
+            Type::BulkString("capa".to_string()),
+            Type::BulkString("psync".to_string()),
+        ])
+        .serialize(),
+    );
+
+    handshake_args.push(
+        Type::Array(vec![
+            Type::BulkString("psync".to_string()),
+            Type::BulkString("?".to_string()),
+            Type::BulkString("-1".to_string()),
+        ])
+        .serialize(),
+    );
+
+    for arg in handshake_args.into_iter() {
+        let _ = send_and_receive(arg.clone(), &mut rd, &mut wr).await;
+    }
 
     Ok(())
 }
