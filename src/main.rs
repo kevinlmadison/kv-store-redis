@@ -52,6 +52,14 @@ async fn main() {
 
     let args = Args::parse();
     let bind_addr = format!("{}:{}", args.addr, args.port);
+
+    let db = Arc::new(Mutex::new(HashMap::new()));
+    let info_db = Arc::new(Mutex::new(HashMap::new()));
+    let _: () = init_info_db(&info_db, &args).unwrap();
+
+    let listener = TcpListener::bind(&bind_addr).await.unwrap();
+    println!("Listening at {}", &bind_addr);
+
     if let Some(tokens) = &args.replicaof {
         let (host, port) = tokens
             .into_iter()
@@ -60,12 +68,6 @@ async fn main() {
             .unwrap();
         let _ = handshake(host, port, &args.port).await.unwrap();
     }
-
-    let listener = TcpListener::bind(&bind_addr).await.unwrap();
-    println!("Listening at {}", &bind_addr);
-    let db = Arc::new(Mutex::new(HashMap::new()));
-    let info_db = Arc::new(Mutex::new(HashMap::new()));
-    let _: () = init_info_db(&info_db, &args).unwrap();
 
     loop {
         match listener.accept().await {
