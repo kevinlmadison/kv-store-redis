@@ -48,7 +48,7 @@ async fn stream_handler(mut stream: TcpStream, db: Db, info_db: InfoDb) -> Resul
 
 #[tokio::main]
 async fn main() {
-    println!("Logs from your program will appear here:");
+    println!("Logs from your program will appear here!");
 
     let args = Args::parse();
     let bind_addr = format!("{}:{}", args.addr, args.port);
