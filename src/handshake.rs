@@ -27,10 +27,7 @@ async fn send_and_receive(msg: Vec<u8>, rd: &mut ReadHalf, wr: &mut WriteHalf) -
 pub async fn handshake(host_addr: &str, host_port: &str, local_port: &str) -> Result<()> {
     let bind_addr: String = host_addr.to_string() + ":" + host_port;
     loop {
-        let Ok(stream) = TcpStream::connect(&bind_addr)
-            .await
-            .context("Attempting to establish connection for handshake failed")
-        else {
+        let Ok(stream) = TcpStream::connect(&bind_addr).await else {
             continue;
         };
         let (mut rd, mut wr) = io::split(stream);
@@ -68,6 +65,23 @@ pub async fn handshake(host_addr: &str, host_port: &str, local_port: &str) -> Re
         for arg in handshake_args.into_iter() {
             let _ = send_and_receive(arg.clone(), &mut rd, &mut wr).await;
         }
+
+        // Here we're waiting for RBD file after receiving the FULLRESYNC from
+        // the master instance.
+
+        let mut buffer: [u8; 1024] = [0; 1024];
+
+        let len = rd.read(&mut buffer).await?;
+
+        if len == 0 {
+            println!("Nothing read from read buffer");
+            return Ok(());
+        }
+
+        println!(
+            "Handshake: {:?} Received",
+            str::from_utf8(&buffer[..len]).unwrap()
+        );
 
         return Ok(());
     }

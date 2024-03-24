@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 pub enum Type {
     SimpleString(String),
     BulkString(String),
+    RDBSyncString(String),
     NullBulkString,
     Integer(String),
     Array(Vec<Type>),
@@ -19,6 +20,7 @@ impl Display for Type {
             }
             Type::SimpleString(s) => f.write_fmt(format_args!("+{}\r\n", s)),
             Type::BulkString(s) => f.write_fmt(format_args!("${}\r\n{}\r\n", s.len(), s)),
+            Type::RDBSyncString(s) => f.write_fmt(format_args!("${}\r\n{}", s.len(), s)),
             Type::NullBulkString => f.write_fmt(format_args!("$-1\r\n")),
             Type::Integer(i) => f.write_fmt(format_args!(":{}\r\n", i)),
         }
@@ -47,6 +49,7 @@ impl Type {
         match self {
             Type::SimpleString(s) => format!("+{}\r\n", s).into_bytes(),
             Type::BulkString(s) => format!("${}\r\n{}\r\n", s.len(), s).into_bytes(),
+            Type::RDBSyncString(s) => format!("${}\r\n{}", s.len(), s).into_bytes(),
             Type::NullBulkString => format!("$-1\r\n").into_bytes(),
             Type::Integer(s) => format!(":{}\r\n", s).into_bytes(),
             Type::Array(elems) => {

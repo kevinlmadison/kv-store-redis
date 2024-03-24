@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub type Db = Arc<Mutex<HashMap<String, SetValue>>>;
+pub type Response = Vec<Vec<u8>>;
 
 #[derive(Debug, Clone)]
 pub struct SetValue {
@@ -120,7 +121,7 @@ fn handle_replconf(frame: Frame, info_db: &InfoDb) -> Result<Vec<u8>> {
 }
 
 fn handle_psync(frame: Frame, info_db: &InfoDb) -> Result<Vec<u8>> {
-    let mut info_db = info_db.lock().unwrap();
+    let info_db = info_db.lock().unwrap();
     let Some(args) = frame.args() else {
         return Err(anyhow!("Could not get frame args as Vec<Type>"));
     };
@@ -148,10 +149,10 @@ fn handle_psync(frame: Frame, info_db: &InfoDb) -> Result<Vec<u8>> {
     Ok(Type::SimpleString("OK".to_string()).serialize())
 }
 
-pub fn create_response(frame: Frame, db: &Db, info_db: &InfoDb) -> Result<Vec<u8>> {
+pub fn create_response(frame: Frame, db: &Db, info_db: &InfoDb) -> Result<Response> {
     match frame.command() {
         Command::Ping => {
-            return Ok(Type::SimpleString("PONG".to_string()).serialize());
+            return Ok(vec![Type::SimpleString("PONG".to_string()).serialize()]);
         }
 
         Command::Echo => {
@@ -159,34 +160,40 @@ pub fn create_response(frame: Frame, db: &Db, info_db: &InfoDb) -> Result<Vec<u8
                 bail!("Could not get frame args as Vec<Type>");
             };
             if args.len() > 1 {
-                return Ok(Type::BulkString(
+                return Ok(vec![Type::BulkString(
                     "(error) Incorrect number of arguments for echo".to_string(),
                 )
-                .serialize());
+                .serialize()]);
             } else {
                 let arg = args.first().context("getting echo arg")?;
-                return Ok(Type::BulkString(arg.to_string()).serialize());
+                return Ok(vec![Type::BulkString(arg.to_string()).serialize()]);
             }
         }
 
         Command::Get => {
-            return handle_get(frame, db);
+            let rv = handle_get(frame, db)?;
+            return Ok(vec![rv]);
         }
 
         Command::Set => {
-            return handle_set(frame, db);
+            let rv = handle_set(frame, db)?;
+            return Ok(vec![rv]);
         }
 
         Command::Info => {
-            return handle_info(frame, info_db);
+            let rv = handle_info(frame, info_db)?;
+            return Ok(vec![rv]);
         }
 
         Command::ReplConf => {
-            return handle_replconf(frame, info_db);
+            let rv = handle_replconf(frame, info_db)?;
+            return Ok(vec![rv]);
         }
 
         Command::PSync => {
-            return handle_psync(frame, info_db);
+            let rv = handle_psync(frame, info_db)?;
+            let rdb = Type::RDBSyncString("524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2".to_string()).serialize();
+            return Ok(vec![rv, rdb]);
         }
     }
 }

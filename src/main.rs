@@ -35,13 +35,15 @@ async fn stream_handler(mut stream: TcpStream, db: Db, info_db: InfoDb) -> Resul
                 .context("creating frame from buffer")
                 .unwrap();
 
-            let response = create_response(frame, &db, &info_db)
+            let responses = create_response(frame, &db, &info_db)
                 .context("getting response from frame")
                 .unwrap();
 
-            let response_slice = &response[..];
-            // println!("response: {:?}", str::from_utf8(response_slice).unwrap());
-            stream.write_all(response_slice).await.unwrap();
+            for response in responses.into_iter() {
+                let response_slice = &response[..];
+                println!("response: {:?}", str::from_utf8(response_slice).unwrap());
+                stream.write_all(response_slice).await.unwrap();
+            }
         }
     }
 }
