@@ -1,5 +1,5 @@
 use crate::resptype::*;
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use std::str;
 use tokio::{io, io::AsyncReadExt, io::AsyncWriteExt, net::TcpStream};
 
@@ -26,42 +26,49 @@ async fn send_and_receive(msg: Vec<u8>, rd: &mut ReadHalf, wr: &mut WriteHalf) -
 
 pub async fn handshake(host_addr: &str, host_port: &str, local_port: &str) -> Result<()> {
     let bind_addr: String = host_addr.to_string() + ":" + host_port;
-    let stream: TcpStream = TcpStream::connect(&bind_addr).await.unwrap();
-    let (mut rd, mut wr) = io::split(stream);
+    loop {
+        let Ok(stream) = TcpStream::connect(&bind_addr)
+            .await
+            .context("Attempting to establish connection for handshake failed")
+        else {
+            continue;
+        };
+        let (mut rd, mut wr) = io::split(stream);
 
-    let mut handshake_args: Vec<Vec<u8>> = Vec::new();
-    handshake_args.push(Type::Array(vec![Type::BulkString("ping".to_string())]).serialize());
+        let mut handshake_args: Vec<Vec<u8>> = Vec::new();
+        handshake_args.push(Type::Array(vec![Type::BulkString("ping".to_string())]).serialize());
 
-    handshake_args.push(
-        Type::Array(vec![
-            Type::BulkString("replconf".to_string()),
-            Type::BulkString("listening-port".to_string()),
-            Type::BulkString(local_port.to_string()),
-        ])
-        .serialize(),
-    );
+        handshake_args.push(
+            Type::Array(vec![
+                Type::BulkString("replconf".to_string()),
+                Type::BulkString("listening-port".to_string()),
+                Type::BulkString(local_port.to_string()),
+            ])
+            .serialize(),
+        );
 
-    handshake_args.push(
-        Type::Array(vec![
-            Type::BulkString("replconf".to_string()),
-            Type::BulkString("capa".to_string()),
-            Type::BulkString("psync".to_string()),
-        ])
-        .serialize(),
-    );
+        handshake_args.push(
+            Type::Array(vec![
+                Type::BulkString("replconf".to_string()),
+                Type::BulkString("capa".to_string()),
+                Type::BulkString("psync".to_string()),
+            ])
+            .serialize(),
+        );
 
-    handshake_args.push(
-        Type::Array(vec![
-            Type::BulkString("psync".to_string()),
-            Type::BulkString("?".to_string()),
-            Type::BulkString("-1".to_string()),
-        ])
-        .serialize(),
-    );
+        handshake_args.push(
+            Type::Array(vec![
+                Type::BulkString("psync".to_string()),
+                Type::BulkString("?".to_string()),
+                Type::BulkString("-1".to_string()),
+            ])
+            .serialize(),
+        );
 
-    for arg in handshake_args.into_iter() {
-        let _ = send_and_receive(arg.clone(), &mut rd, &mut wr).await;
+        for arg in handshake_args.into_iter() {
+            let _ = send_and_receive(arg.clone(), &mut rd, &mut wr).await;
+        }
+
+        return Ok(());
     }
-
-    Ok(())
 }
