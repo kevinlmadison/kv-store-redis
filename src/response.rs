@@ -198,9 +198,11 @@ pub fn create_response(frame: Frame, db: &Db, info_db: &InfoDb) -> Result<Respon
                 .step_by(2)
                 .map(|i| u8::from_str_radix(&rdb[i..i + 2], 16))
                 .collect();
-            let hex = hex.unwrap();
+            let mut hex = hex.unwrap();
+            let mut prefix: Vec<u8> = format!("${}\r\n", hex.len()).into_bytes();
+            prefix.append(&mut hex);
             println!("THIS IS HEX: {:?}", hex);
-            return Ok(vec![rv, hex]);
+            return Ok(vec![rv, prefix]);
         }
     }
 }
