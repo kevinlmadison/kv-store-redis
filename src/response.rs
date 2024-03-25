@@ -5,6 +5,7 @@ use crate::resptype::*;
 use anyhow::{anyhow, bail, Context, Result};
 use itertools::Itertools;
 use std::collections::HashMap;
+use std::num::ParseIntError;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -192,8 +193,14 @@ pub fn create_response(frame: Frame, db: &Db, info_db: &InfoDb) -> Result<Respon
 
         Command::PSync => {
             let rv = handle_psync(frame, info_db)?;
-            let rdb = Type::RDBSyncString("524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2".to_string()).serialize();
-            return Ok(vec![rv, rdb]);
+            let rdb = "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2";
+            let hex: Result<Vec<u8>, ParseIntError> = (0..rdb.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&rdb[i..i + 2], 16))
+                .collect();
+            let hex = hex.unwrap();
+            println!("THIS IS HEX: {:?}", hex);
+            return Ok(vec![rv, hex]);
         }
     }
 }

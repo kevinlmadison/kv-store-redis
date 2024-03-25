@@ -9,6 +9,8 @@ use tokio::{
     net::{TcpListener, TcpStream},
 };
 
+use std::{thread, time};
+
 mod command;
 mod flags;
 mod frame;
@@ -41,8 +43,12 @@ async fn stream_handler(mut stream: TcpStream, db: Db, info_db: InfoDb) -> Resul
 
             for response in responses.into_iter() {
                 let response_slice = &response[..];
-                println!("response: {:?}", str::from_utf8(response_slice).unwrap());
                 stream.write_all(response_slice).await.unwrap();
+                stream.flush().await.unwrap();
+                // The only reason other people's code seemed to work here is because there was
+                // additional work being done that added an inherent pause.
+                let ten_millis = time::Duration::from_millis(10);
+                thread::sleep(ten_millis);
             }
         }
     }

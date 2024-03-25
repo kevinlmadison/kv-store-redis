@@ -13,12 +13,13 @@ async fn send_and_receive(msg: Vec<u8>, rd: &mut ReadHalf, wr: &mut WriteHalf) -
         let len = rd.read(&mut buffer).await?;
 
         if len == 0 {
-            bail!("Nothing read from read buffer")
+            bail!("Nothing read from read buffer loop")
         }
 
         println!(
             "Handshake: {:?} Received",
-            str::from_utf8(&buffer[..len]).unwrap()
+            // str::from_utf8(&buffer[..len]).unwrap()
+            &buffer[..len]
         );
     }
     Ok(())
@@ -79,8 +80,9 @@ pub async fn handshake(host_addr: &str, host_port: &str, local_port: &str) -> Re
         }
 
         println!(
-            "Handshake: {:?} Received",
-            str::from_utf8(&buffer[..len]).unwrap()
+            "Handshake Post: {:?} Received",
+            // str::from_utf8(&buffer[..len]).unwrap()
+            &buffer[..len]
         );
 
         return Ok(());
