@@ -51,7 +51,7 @@ async fn stream_handler(
             for response in responses.into_iter() {
                 let response_slice = &response[..];
                 stream.write_all(response_slice).await.unwrap();
-                stream.flush().await.unwrap();
+                // stream.flush().await.unwrap();
                 let ten_millis = time::Duration::from_millis(10);
                 thread::sleep(ten_millis);
             }
