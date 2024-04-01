@@ -1,13 +1,10 @@
-use crate::command::*;
 use crate::flags::*;
 use crate::frame::*;
-use crate::response::*;
 use crate::resptype::*;
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 const MASTER_DEFAULTS: [(&str, &str); 5] = [
     ("role", "master"),

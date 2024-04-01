@@ -1,10 +1,31 @@
+use crate::frame::*;
+use crate::info::*;
+use crate::response::*;
 use crate::resptype::*;
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use std::str;
+use std::{thread, time};
 use tokio::{io, io::AsyncReadExt, io::AsyncWriteExt, net::TcpStream};
 
 type WriteHalf = io::WriteHalf<TcpStream>;
 type ReadHalf = io::ReadHalf<TcpStream>;
+
+pub async fn replicate(frame: Frame, streams: &StreamVec) {
+    let mut streams = streams.lock().unwrap();
+    let msg = frame.bytes_vec();
+    for stream in streams.iter_mut() {
+        stream.write_all(&msg).await.unwrap();
+        stream.flush().await.unwrap();
+    }
+}
+
+fn sync_replica_db(/* info_db: &InfoDb, db: &Db */) -> Result<()> {
+    // For now we just add an arbitrary wait to simulate syncing the replica
+    // with the rdb file
+    let ten_millis = time::Duration::from_millis(3000);
+    thread::sleep(ten_millis);
+    Ok(())
+}
 
 async fn send_and_receive(msg: Vec<u8>, rd: &mut ReadHalf, wr: &mut WriteHalf) -> Result<()> {
     if let Ok(_) = wr.write_all(&msg[..]).await {
@@ -78,6 +99,8 @@ pub async fn handshake(host_addr: &str, host_port: &str, local_port: &str) -> Re
             println!("Nothing read from read buffer");
             return Ok(());
         }
+
+        // let _ = sync_replica_db();
 
         println!(
             "Handshake Post: {:?} Received",
