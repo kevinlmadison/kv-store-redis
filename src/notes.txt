@@ -1,0 +1,7 @@
+So in order to sync the replica when the master receives a set command
+we need the following things to occur:
+
+- The master first checks if there are any connected replicas from its own info
+  db.
+- For each connected replica the master will forward the set command
+  to that replica.

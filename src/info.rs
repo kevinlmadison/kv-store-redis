@@ -1,13 +1,11 @@
-use crate::command::*;
 use crate::flags::*;
 use crate::frame::*;
-use crate::response::*;
 use crate::resptype::*;
-use anyhow::{anyhow, bail, Context, Result};
+use crate::server::*;
+use anyhow::{bail, Context, Result};
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 const MASTER_DEFAULTS: [(&str, &str); 5] = [
     ("role", "master"),
@@ -47,9 +45,9 @@ const REPLICATION_ARGS: [&str; 7] = [
     "master_repl_offset",
 ];
 
-pub type InfoDb = Arc<Mutex<HashMap<String, String>>>;
+pub type Db = Arc<Mutex<Database>>;
 
-pub fn init_info_db(info_db: &InfoDb, args: &Args) -> Result<()> {
+pub fn init_info_db(info_db: &Db, args: &Args) -> Result<()> {
     let defaults: Vec<(&str, &str)> = match args.replicaof {
         Some(_) => SLAVE_DEFAULTS.to_vec(),
         None => MASTER_DEFAULTS.to_vec(),
@@ -57,20 +55,26 @@ pub fn init_info_db(info_db: &InfoDb, args: &Args) -> Result<()> {
     let mut info_db = info_db.lock().unwrap();
 
     for (k, v) in defaults {
-        info_db.insert(k.to_owned(), v.to_owned());
+        let db_entry: DbEntry = DbEntry::new(v.to_owned(), None);
+        info_db.insert(k.to_owned(), db_entry);
     }
     if let Some(tokens) = &args.replicaof {
         let (host, port) = tokens
             .into_iter()
             .collect_tuple()
             .context("parsing arguments for --replicaof flag")?;
+
         let host: String = host.try_into().context("parsing host from &str")?;
+        let db_entry: DbEntry = DbEntry::new(host.to_owned(), None);
+        info_db.insert("master_host".to_owned(), db_entry);
+
         let port: String = port.try_into().context("parsing port from &str")?;
-        info_db.insert("master_host".to_owned(), host.to_owned());
-        info_db.insert("master_port".to_owned(), port.to_owned());
+        let db_entry: DbEntry = DbEntry::new(port.to_owned(), None);
+        info_db.insert("master_port".to_owned(), db_entry);
     }
 
-    info_db.insert("tcp_port".to_owned(), args.port.to_owned());
+    let db_entry: DbEntry = DbEntry::new(args.port.to_owned(), None);
+    info_db.insert("tcp_port".to_owned(), db_entry);
 
     Ok(())
 }
@@ -105,7 +109,7 @@ impl TryFrom<&str> for InfoQuery {
     }
 }
 
-fn info_query(query: InfoQuery, info_db: &InfoDb) -> Result<Vec<u8>> {
+fn info_query(query: InfoQuery, info_db: &Db) -> Result<Vec<u8>> {
     match query {
         InfoQuery::Replication => {
             let rv: Vec<String> = REPLICATION_ARGS
@@ -119,10 +123,7 @@ fn info_query(query: InfoQuery, info_db: &InfoDb) -> Result<Vec<u8>> {
             let rv = rv
                 .iter()
                 .map(|k| {
-                    k.to_owned()
-                        + ":"
-                        + info_db.get(k).unwrap_or(&"(nil)".to_string()).as_str()
-                        + "\n"
+                    k.to_owned() + ":" + info_db.get(k.to_owned()).unwrap().value().as_str() + "\n"
                 })
                 .collect::<Vec<String>>();
 
@@ -145,10 +146,7 @@ fn info_query(query: InfoQuery, info_db: &InfoDb) -> Result<Vec<u8>> {
             let rv = rv
                 .iter()
                 .map(|k| {
-                    k.to_owned()
-                        + ":"
-                        + info_db.get(k).unwrap_or(&"(nil)".to_string()).as_str()
-                        + "\n"
+                    k.to_owned() + ":" + info_db.get(k.to_owned()).unwrap().value().as_str() + "\n"
                 })
                 .collect::<Vec<String>>();
 
@@ -163,11 +161,7 @@ fn info_query(query: InfoQuery, info_db: &InfoDb) -> Result<Vec<u8>> {
         InfoQuery::Test => {
             let info_db = info_db.lock().unwrap();
 
-            let rv = info_db
-                .clone()
-                .into_iter()
-                .map(|(k, v)| k.to_owned() + ":" + v.as_str() + "\n")
-                .collect::<Vec<String>>();
+            let rv = info_db.get_all().unwrap();
 
             let rv = rv
                 .iter()
@@ -180,7 +174,7 @@ fn info_query(query: InfoQuery, info_db: &InfoDb) -> Result<Vec<u8>> {
     }
 }
 
-pub fn handle_info(frame: Frame, info_db: &InfoDb) -> Result<Vec<u8>> {
+pub fn handle_info(frame: Frame, info_db: &Db) -> Result<Vec<u8>> {
     println!("handling info command");
     // let mut info_db = info_db.lock().unwrap();
     if let Some(mut args) = frame.args() {

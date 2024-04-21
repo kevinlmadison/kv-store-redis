@@ -1,10 +1,12 @@
 use anyhow::{bail, Result};
 use std::fmt::{Display, Formatter};
+use std::num::ParseIntError;
 
 #[derive(Debug, Clone)]
 pub enum Type {
     SimpleString(String),
     BulkString(String),
+    RDBSyncString(String),
     NullBulkString,
     Integer(String),
     Array(Vec<Type>),
@@ -19,6 +21,7 @@ impl Display for Type {
             }
             Type::SimpleString(s) => f.write_fmt(format_args!("+{}\r\n", s)),
             Type::BulkString(s) => f.write_fmt(format_args!("${}\r\n{}\r\n", s.len(), s)),
+            Type::RDBSyncString(s) => f.write_fmt(format_args!("${}\r\n{}", s.len(), s)),
             Type::NullBulkString => f.write_fmt(format_args!("$-1\r\n")),
             Type::Integer(i) => f.write_fmt(format_args!(":{}\r\n", i)),
         }
@@ -47,6 +50,16 @@ impl Type {
         match self {
             Type::SimpleString(s) => format!("+{}\r\n", s).into_bytes(),
             Type::BulkString(s) => format!("${}\r\n{}\r\n", s.len(), s).into_bytes(),
+            Type::RDBSyncString(rdb) => {
+                let hex: Result<Vec<u8>, ParseIntError> = (0..rdb.len())
+                    .step_by(2)
+                    .map(|i| u8::from_str_radix(&rdb[i..i + 2], 16))
+                    .collect();
+                let mut hex = hex.unwrap();
+                let mut prefix: Vec<u8> = format!("${}\r\n", hex.len()).into_bytes();
+                prefix.append(&mut hex);
+                return prefix;
+            }
             Type::NullBulkString => format!("$-1\r\n").into_bytes(),
             Type::Integer(s) => format!(":{}\r\n", s).into_bytes(),
             Type::Array(elems) => {

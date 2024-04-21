@@ -10,25 +10,29 @@ pub type Cursor = usize;
 pub struct Frame {
     command: Command,
     args: Option<Vec<String>>,
-    resp: Type,
+    bytes_vec: Vec<u8>,
 }
 
 impl Frame {
-    pub fn new(buffer: &[u8]) -> Result<Self> {
-        let (resp, _) = parse_resp(buffer);
-        let resp_clone = resp.clone();
+    pub fn new(buffer: &[u8], len: usize) -> Result<Self> {
+        let mut bytes_vec: Vec<u8> = Vec::new();
+        for val in &buffer[..len] {
+            let val_c = val;
+            bytes_vec.push(*val_c);
+        }
 
-        let Type::Array(tokens) = resp_clone else {
+        let (resp, _) = parse_resp(buffer);
+
+        let Type::Array(tokens) = resp else {
             bail!("unable to parse tokens from array")
         };
-        // let cmd = cmd_args[0].clone();
         let cmd = tokens.first().context("parsing first token for command")?;
         let cmd: Command = cmd.try_into().context("parsing command string")?;
         match cmd {
             Command::Ping => Ok(Self {
                 command: cmd,
                 args: None,
-                resp: resp,
+                bytes_vec,
             }),
             Command::Echo => {
                 let (_, arg) = tokens
@@ -40,7 +44,7 @@ impl Frame {
                 Ok(Self {
                     command: cmd,
                     args: Some(vec![arg]),
-                    resp: resp,
+                    bytes_vec,
                 })
             }
             Command::Get => {
@@ -53,7 +57,7 @@ impl Frame {
                 Ok(Self {
                     command: cmd,
                     args: Some(vec![arg]),
-                    resp: resp,
+                    bytes_vec,
                 })
             }
             Command::Set => {
@@ -68,7 +72,7 @@ impl Frame {
                     Ok(Self {
                         command: cmd,
                         args: Some(vec![key, val]),
-                        resp: resp,
+                        bytes_vec,
                     })
                 } else if tokens.len() == 5 {
                     let (_, key, val, px, dur) = tokens
@@ -83,7 +87,7 @@ impl Frame {
                     Ok(Self {
                         command: cmd,
                         args: Some(vec![key, val, px, dur]),
-                        resp: resp,
+                        bytes_vec,
                     })
                 } else {
                     bail!("Set command can only handle 2 or 4 arguments currently");
@@ -94,7 +98,7 @@ impl Frame {
                     Ok(Self {
                         command: cmd,
                         args: None,
-                        resp: resp,
+                        bytes_vec,
                     })
                 } else if tokens.len() == 2 {
                     let (_, arg) = tokens
@@ -106,7 +110,7 @@ impl Frame {
                     Ok(Self {
                         command: cmd,
                         args: Some(vec![arg]),
-                        resp: resp,
+                        bytes_vec,
                     })
                 } else {
                     bail!("Info command can only handle 0 or 1 arguments currently");
@@ -124,7 +128,7 @@ impl Frame {
                     Ok(Self {
                         command: cmd,
                         args: Some(vec![arg1, arg2]),
-                        resp: resp,
+                        bytes_vec,
                     })
                 } else {
                     bail!("ReplConf command can only handle 2 arguments currently");
@@ -142,13 +146,12 @@ impl Frame {
                     Ok(Self {
                         command: cmd,
                         args: Some(vec![arg1, arg2]),
-                        resp: resp,
+                        bytes_vec,
                     })
                 } else {
                     bail!("PSync command can only handle 2 arguments currently");
                 }
             }
-            _ => bail!("Failed to parse a command"),
         }
     }
 
@@ -156,12 +159,16 @@ impl Frame {
         self.command.clone()
     }
 
-    pub fn resp(&self) -> Type {
-        self.resp.clone()
-    }
-
     pub fn args(&self) -> Option<Vec<String>> {
         self.args.clone()
+    }
+
+    pub fn bytes_vec(&self) -> Vec<u8> {
+        self.bytes_vec.clone()
+    }
+
+    pub fn serialize(&self) -> Option<Vec<u8>> {
+        None
     }
 }
 
