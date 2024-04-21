@@ -13,9 +13,10 @@ type ReadHalf = io::ReadHalf<TcpStream>;
 pub async fn replicate(frame: Frame, streams: &StreamVec) {
     let mut streams = streams.lock().unwrap();
     let msg = frame.bytes_vec();
+    println!("Replicatiing: {:?}", msg);
     for stream in streams.iter_mut() {
-        stream.write_all(&msg).await.unwrap();
-        stream.flush().await.unwrap();
+        let _ = &stream.write_all(&msg).await.unwrap();
+        let _ = &stream.flush().await.unwrap();
     }
 }
 
