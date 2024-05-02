@@ -50,7 +50,7 @@ pub type Db = Arc<Mutex<Database>>;
 
 pub fn init_info_db(
     info_db: &Db,
-    master_addr: Option<&SocketAddr>,
+    master_addr: Option<SocketAddr>,
     tcp_port: u16,
     role: Role,
 ) -> Result<()> {

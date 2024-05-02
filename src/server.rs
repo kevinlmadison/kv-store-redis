@@ -67,17 +67,6 @@ impl Database {
         // Key not found
         return Ok(DbEntry::new("(nil)".into(), None));
     }
-    // pub fn get(&self, key: String) -> Result<DbEntry> {
-    //     // not handling the case of None for expiry!
-    //     if let Some(val) = self.db.get(&key) {
-    //         if let Some(exp) = val.expiry {
-    //             if exp > Instant::now() {
-    //                 return Ok(val.clone());
-    //             }
-    //         }
-    //     }
-    //     return Ok(DbEntry::new("(nil)".into(), None));
-    // }
 
     pub fn get_all(&self) -> Result<Vec<String>> {
         Ok(self
@@ -148,6 +137,7 @@ impl Server {
         println!("Getting here 1");
         match role {
             Role::Master => {
+                let _ = self.call_init_info_db();
                 let bind_addr = self.server_info.lock().unwrap().addr.clone();
                 let listener = TcpListener::bind(&bind_addr).await.unwrap();
                 loop {
@@ -169,6 +159,7 @@ impl Server {
                 }
             }
             Role::Slave(bind_addr) => {
+                let _ = self.call_init_info_db();
                 let port = self.server_info.lock().unwrap().addr.clone().port();
                 let stream = self.handshake(bind_addr, port).await.unwrap();
                 let db = self.redis_db.clone();
@@ -247,6 +238,20 @@ impl Server {
 
             return Ok(rd.unsplit(wr));
         }
+    }
+    pub fn call_init_info_db(&self) -> Result<()> {
+        let info_db = &self.info_db;
+        let role = self.server_info.lock().unwrap().role.clone();
+        let port = self.server_info.lock().unwrap().addr.port();
+        match &role {
+            &Role::Master => {
+                let _ = init_info_db(&info_db, None, port, role);
+            }
+            &Role::Slave(master_addr) => {
+                let _ = init_info_db(&info_db, Some(master_addr), port, role);
+            }
+        }
+        Ok(())
     }
 }
 
