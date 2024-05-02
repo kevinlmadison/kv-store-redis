@@ -35,26 +35,27 @@ async fn main() {
     let args = Args::parse();
     let bind_addr: SocketAddr = format!("{}:{}", args.addr, args.port).parse().unwrap();
 
-    let db = Arc::new(Mutex::new(Database::default()));
-    let info_db = Arc::new(Mutex::new(Database::default()));
-    let _: () = init_info_db(&info_db, &args).unwrap();
-
-    // let listener = TcpListener::bind(&bind_addr).await.unwrap();
     println!("Listening at {}", &bind_addr);
 
-    match &args.replicaof {
-        Some(tokens) => {
-            let (host, port) = tokens
-                .into_iter()
-                .collect_tuple()
-                .context("parsing arguments for --replicaof flag")
-                .unwrap();
-            let master_addr: SocketAddr = format!("{}:{}", host, port).parse().unwrap();
-            let server = Server::new(bind_addr, Role::Slave(master_addr));
-        }
-        None => {
-            let server = Server::new(bind_addr, Role::Master);
-        }
-    }
-    let _ = handshake(host, port, &args.port).await.unwrap();
+    let server = Server::new(&args);
+    // let stream = server.handshake(bind_addr, &args.port).await.unwrap();
+    let _ = server.start().await.unwrap();
+
+    // match &args.replicaof {
+    //     Some(tokens) => {
+    //         let (host, port) = tokens
+    //             .into_iter()
+    //             .collect_tuple()
+    //             .context("parsing arguments for --replicaof flag")
+    //             .unwrap();
+    //         let master_addr: SocketAddr = format!("{}:{}", host, port).parse().unwrap();
+    //         let server = Server::new(bind_addr, Role::Slave(master_addr));
+    //         let _ = server.start(Some(stream), args);
+    //     }
+    //     None => {
+    //         let server = Server::new(bind_addr, Role::Master);
+    //         let _ = server.start(None, args);
+    //     }
+    // }
+    // let _ = handshake(host, port, &args.port).await.unwrap();
 }

@@ -12,7 +12,6 @@ use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
 
 pub type Db = Arc<Mutex<Database>>;
-pub type StreamVec = Arc<Mutex<Vec<TcpStream>>>;
 pub type Response = Vec<Vec<u8>>;
 
 // #[derive(Debug, Clone)]
@@ -33,21 +32,17 @@ fn handle_get(frame: Frame, db: &Db) -> Result<Vec<u8>> {
         );
     }
 
-    let key = args.first().context("getting get key")?;
-    let Some(val) = db.get(key) else {
-        return Ok(Type::NullBulkString.serialize());
-    };
+    let key = args.first().context("Parsing get key")?;
+    let val = db
+        .get(key.to_string())
+        .context("Getting val from Db in handle_get")?;
 
-    match val.expiry {
-        Some(expiry) => {
-            if expiry <= Instant::now() {
-                return Ok(Type::NullBulkString.serialize());
-            } else {
-                return Ok(Type::BulkString(val.value.to_string()).serialize());
-            }
+    match val.clone().value().as_str() {
+        "(nil)" => {
+            return Ok(Type::NullBulkString.serialize());
         }
-        None => {
-            return Ok(Type::BulkString(val.value.to_string()).serialize());
+        _ => {
+            return Ok(Type::BulkString(val.value()).serialize());
         }
     }
 }
@@ -63,7 +58,7 @@ fn handle_set(frame: Frame, db: &Db) -> Result<Vec<u8>> {
             .into_iter()
             .collect_tuple()
             .context("parsing argument for set command")?;
-        let set_val = DbEntry::new(val);
+        let set_val = DbEntry::new(val, None);
         db.insert(key, set_val);
     } else if args.len() == 4 {
         let (key, val, px, dur) = args
@@ -74,7 +69,7 @@ fn handle_set(frame: Frame, db: &Db) -> Result<Vec<u8>> {
             bail!("can only support px as extra command for set");
         }
         let dur = dur.parse::<u64>().context("parsing u64 from string")?;
-        let set_val = DbEntry::new_with_expiry(val, Duration::from_millis(dur));
+        let set_val = DbEntry::new(val, Some(Duration::from_millis(dur)));
         db.insert(key, set_val);
     } else {
         println!("incorrect arg count");
@@ -100,7 +95,9 @@ fn handle_replconf(frame: Frame, info_db: &Db) -> Result<Vec<u8>> {
                 key
             );
         }
-        info_db.insert(key.clone(), val);
+        // info_db.insert(key.clone(), val);
+        let set_val = DbEntry::new(val, None);
+        info_db.insert(key, set_val);
         // println!("GETTING HERE IN REPLCONF: {:?}", info_db.get(&key).unwrap());
     } else {
         println!("incorrect arg count");
@@ -125,12 +122,16 @@ fn handle_psync(frame: Frame, info_db: &Db) -> Result<Vec<u8>> {
                 offset,
             );
         }
-        let rv_id: &str = info_db.get("master_replid").unwrap();
-        let rv_offset: &str = info_db.get("master_repl_offset").unwrap();
+        let rv_id = info_db.get("master_replid".to_string()).unwrap().value();
+        let rv_offset = info_db
+            .get("master_repl_offset".to_string())
+            .unwrap()
+            .value();
         // println!("GETTING HERE IN REPLCONF: {:?}", rv_id);
-        return Ok(
-            Type::SimpleString("FULLRESYNC ".to_string() + rv_id + " " + rv_offset).serialize(),
-        );
+        return Ok(Type::SimpleString(
+            "FULLRESYNC ".to_string() + rv_id.as_str() + " " + rv_offset.as_str(),
+        )
+        .serialize());
     } else {
         println!("incorrect arg count");
     }

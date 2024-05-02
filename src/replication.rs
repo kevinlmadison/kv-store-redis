@@ -1,23 +1,29 @@
 use crate::frame::*;
-use crate::info::*;
 use crate::response::*;
 use crate::resptype::*;
+use crate::server::*;
 use anyhow::{bail, Result};
 use std::str;
+use std::sync::{Arc, Mutex};
 use std::{thread, time};
 use tokio::{io, io::AsyncReadExt, io::AsyncWriteExt, net::TcpStream};
 
 type WriteHalf = io::WriteHalf<TcpStream>;
 type ReadHalf = io::ReadHalf<TcpStream>;
 
-pub async fn replicate(frame: Frame, streams: &StreamVec) {
-    let mut streams = streams.lock().unwrap();
+pub fn replicate(frame: Frame, server_info: Arc<Mutex<ServerInfo>>) {
+    let mut server_info = server_info.lock().unwrap();
     let msg = frame.bytes_vec();
     println!("Replicatiing: {:?}", msg);
-    for stream in streams.iter_mut() {
-        let _ = &stream.write_all(&msg).await.unwrap();
-        let _ = &stream.flush().await.unwrap();
+    for replica in server_info.replicas.iter_mut() {
+        let _ = my_send(replica, &msg[..]);
+        // let _ = replica_c.write_all(&msg).await.unwrap();
+        // let _ = replica_c.flush().await.unwrap();
     }
+}
+
+pub async fn my_send(stream: &mut TcpStream, msg: &[u8]) {
+    stream.write_all(&msg).await.unwrap();
 }
 
 fn sync_replica_db(/* info_db: &InfoDb, db: &Db */) -> Result<()> {

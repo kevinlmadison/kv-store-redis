@@ -5,6 +5,7 @@ use crate::server::*;
 use anyhow::{bail, Context, Result};
 use itertools::Itertools;
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 const MASTER_DEFAULTS: [(&str, &str); 5] = [
@@ -47,34 +48,36 @@ const REPLICATION_ARGS: [&str; 7] = [
 
 pub type Db = Arc<Mutex<Database>>;
 
-pub fn init_info_db(info_db: &Db, args: &Args) -> Result<()> {
-    let defaults: Vec<(&str, &str)> = match args.replicaof {
-        Some(_) => SLAVE_DEFAULTS.to_vec(),
-        None => MASTER_DEFAULTS.to_vec(),
+pub fn init_info_db(
+    info_db: &Db,
+    master_addr: Option<&SocketAddr>,
+    tcp_port: u16,
+    role: Role,
+) -> Result<()> {
+    let defaults: Vec<(&str, &str)> = match role {
+        Role::Slave(_) => SLAVE_DEFAULTS.to_vec(),
+        Role::Master => MASTER_DEFAULTS.to_vec(),
     };
     let mut info_db = info_db.lock().unwrap();
 
     for (k, v) in defaults {
         let db_entry: DbEntry = DbEntry::new(v.to_owned(), None);
-        info_db.insert(k.to_owned(), db_entry);
+        let _ = info_db.insert(k.to_owned(), db_entry);
     }
-    if let Some(tokens) = &args.replicaof {
-        let (host, port) = tokens
-            .into_iter()
-            .collect_tuple()
-            .context("parsing arguments for --replicaof flag")?;
-
-        let host: String = host.try_into().context("parsing host from &str")?;
+    if let Some(addr) = master_addr {
+        let host = addr.ip();
+        let port = addr.port();
+        let host: String = host.to_string();
         let db_entry: DbEntry = DbEntry::new(host.to_owned(), None);
-        info_db.insert("master_host".to_owned(), db_entry);
+        let _ = info_db.insert("master_host".to_owned(), db_entry);
 
-        let port: String = port.try_into().context("parsing port from &str")?;
+        let port: String = port.to_string();
         let db_entry: DbEntry = DbEntry::new(port.to_owned(), None);
-        info_db.insert("master_port".to_owned(), db_entry);
+        let _ = info_db.insert("master_port".to_owned(), db_entry);
     }
 
-    let db_entry: DbEntry = DbEntry::new(args.port.to_owned(), None);
-    info_db.insert("tcp_port".to_owned(), db_entry);
+    let db_entry: DbEntry = DbEntry::new(tcp_port.to_string(), None);
+    let _ = info_db.insert("tcp_port".to_owned(), db_entry);
 
     Ok(())
 }
