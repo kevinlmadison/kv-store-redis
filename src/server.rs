@@ -136,11 +136,11 @@ impl Server {
         let role = self.server_info.lock().await.role.clone();
         match role {
             Role::Master => {
-                let _ = self.call_init_info_db();
+                let _ = self.call_init_info_db().await?;
             }
 
             Role::Slave(bind_addr) => {
-                let _ = self.call_init_info_db();
+                let _ = self.call_init_info_db().await?;
                 let port = self.server_info.lock().await.addr.clone().port();
                 let stream = self.handshake(bind_addr, port).await.unwrap();
                 let db = self.redis_db.clone();
@@ -259,42 +259,42 @@ type WriteHalf = io::WriteHalf<TcpStream>;
 type ReadHalf = io::ReadHalf<TcpStream>;
 
 pub async fn replicate(frame: Frame, server_info: Arc<tokio::sync::Mutex<ServerInfo>>) {
-    //     let mut server_info = server_info.lock().unwrap();
-    //     let msg = frame.bytes_vec();
-    //     println!("Replicatiing: {:?}", msg);
-    //     for replica in server_info.replicas.iter_mut() {
-    //         println!("Replicating this replica: {:?}", replica);
-    //         let _ = replicate_send_and_receive(replica, &msg).await.unwrap();
-    //     }
     let msg = frame.bytes_vec();
-    println!("Replicatiing: {:?}", msg);
+    // println!("Replicatiing: {:?}", msg);
     let replicas = &mut server_info.lock().await.replicas;
     for replica in replicas.iter_mut() {
-        println!("Replicating this replica: {:?}", replica);
+        // println!("Replicating this replica: {:?}", replica);
         let msg = msg.clone();
-        let _ = replicate_send_and_receive(replica, msg).await.unwrap();
+        replica
+            .write_all(&msg)
+            .await
+            .expect("failed to write to stream");
+        // stream.flush().await.unwrap();
+        let ten_millis = time::Duration::from_millis(10);
+        thread::sleep(ten_millis);
+        // let _ = replicate_send_and_receive(replica, msg).await.unwrap();
     }
 }
 
-pub async fn replicate_send_and_receive(stream: &mut TcpStream, msg: Vec<u8>) -> Result<()> {
-    let (mut rd, mut wr) = io::split(stream);
-    if let Ok(_) = wr.write_all(&msg[..]).await {
-        let mut buffer: [u8; 1024] = [0; 1024];
-
-        let len = rd.read(&mut buffer).await?;
-
-        if len == 0 {
-            bail!("Nothing read from read buffer loop")
-        }
-
-        println!(
-            "Response: {:?}",
-            str::from_utf8(&buffer[..len]).unwrap() // &buffer[..len]
-        );
-    }
-    rd.unsplit(wr);
-    return Ok(());
-}
+// pub async fn replicate_send_and_receive(stream: &mut TcpStream, msg: Vec<u8>) -> Result<()> {
+//     let (mut rd, mut wr) = io::split(stream);
+//     if let Ok(_) = wr.write_all(&msg[..]).await {
+//         let mut buffer: [u8; 1024] = [0; 1024];
+//
+//         let len = rd.read(&mut buffer).await?;
+//
+//         if len == 0 {
+//             bail!("Nothing read from read buffer loop")
+//         }
+//
+//         println!(
+//             "Response: {:?}",
+//             str::from_utf8(&buffer[..len]).unwrap() // &buffer[..len]
+//         );
+//     }
+//     rd.unsplit(wr);
+//     return Ok(());
+// }
 
 fn sync_replica_db(/* info_db: &InfoDb, db: &Db */) -> Result<()> {
     // For now we just add an arbitrary wait to simulate syncing the replica
@@ -345,11 +345,14 @@ async fn stream_handler(
 
             let responses = create_response(frame, &db, &info_db)
                 .context("getting response from frame")
-                .unwrap();
+                .expect("failed to create response");
 
             for response in responses.into_iter() {
                 let response_slice = &response[..];
-                stream.write_all(response_slice).await.unwrap();
+                stream
+                    .write_all(response_slice)
+                    .await
+                    .expect("failed to write to stream");
                 // stream.flush().await.unwrap();
                 let ten_millis = time::Duration::from_millis(10);
                 thread::sleep(ten_millis);
