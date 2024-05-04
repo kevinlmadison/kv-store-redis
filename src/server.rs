@@ -94,7 +94,7 @@ pub struct ServerInfo {
 pub struct Server {
     redis_db: Arc<Mutex<Database>>,
     info_db: Arc<Mutex<Database>>,
-    server_info: Arc<Mutex<ServerInfo>>,
+    server_info: Arc<tokio::sync::Mutex<ServerInfo>>,
 }
 
 impl Server {
@@ -109,7 +109,7 @@ impl Server {
                     .unwrap();
                 let master_addr: SocketAddr = format!("{}:{}", host, port).parse().unwrap();
                 return Self {
-                    server_info: Arc::new(Mutex::new(ServerInfo {
+                    server_info: Arc::new(tokio::sync::Mutex::new(ServerInfo {
                         replicas: Vec::default(),
                         role: Role::Slave(master_addr),
                         addr: bind_addr,
@@ -120,7 +120,7 @@ impl Server {
             }
             None => {
                 return Self {
-                    server_info: Arc::new(Mutex::new(ServerInfo {
+                    server_info: Arc::new(tokio::sync::Mutex::new(ServerInfo {
                         replicas: Vec::default(),
                         role: Role::Master,
                         addr: bind_addr,
@@ -133,42 +133,42 @@ impl Server {
     }
 
     pub async fn start(&self) -> Result<()> {
-        let role = self.server_info.lock().unwrap().role.clone();
-        println!("Getting here 1");
+        let role = self.server_info.lock().await.role.clone();
         match role {
             Role::Master => {
                 let _ = self.call_init_info_db();
-                let bind_addr = self.server_info.lock().unwrap().addr.clone();
-                let listener = TcpListener::bind(&bind_addr).await.unwrap();
-                loop {
-                    match listener.accept().await {
-                        Ok((stream, _)) => {
-                            let db = self.redis_db.clone();
-                            let info_db = self.info_db.clone();
-                            // let _: () = init_info_db(&info_db, &args).unwrap();
-                            let server_info = self.server_info.clone();
-                            tokio::spawn(async move {
-                                stream_handler(stream, db, info_db, server_info).await
-                            });
-                            println!("Tokio thread spawned");
-                        }
-                        Err(e) => {
-                            println!("error: {}", e);
-                        }
-                    }
-                }
             }
+
             Role::Slave(bind_addr) => {
                 let _ = self.call_init_info_db();
-                let port = self.server_info.lock().unwrap().addr.clone().port();
+                let port = self.server_info.lock().await.addr.clone().port();
                 let stream = self.handshake(bind_addr, port).await.unwrap();
                 let db = self.redis_db.clone();
                 let info_db = self.info_db.clone();
-                // let _: () = init_info_db(&info_db, &args).unwrap();
                 let server_info = self.server_info.clone();
                 tokio::spawn(async move { stream_handler(stream, db, info_db, server_info).await });
-                println!("Tokio thread spawned");
-                Ok(())
+                println!("Tokio thread spawned for replication");
+                // Ok(())
+            }
+        }
+
+        let bind_addr = self.server_info.lock().await.addr.clone();
+        let listener = TcpListener::bind(&bind_addr).await.unwrap();
+        println!("STARTING");
+        loop {
+            match listener.accept().await {
+                Ok((stream, _)) => {
+                    let db = self.redis_db.clone();
+                    let info_db = self.info_db.clone();
+                    let server_info = self.server_info.clone();
+                    tokio::spawn(
+                        async move { stream_handler(stream, db, info_db, server_info).await },
+                    );
+                    println!("Tokio thread spawned");
+                }
+                Err(e) => {
+                    println!("error: {}", e);
+                }
             }
         }
     }
@@ -239,10 +239,10 @@ impl Server {
             return Ok(rd.unsplit(wr));
         }
     }
-    pub fn call_init_info_db(&self) -> Result<()> {
+    pub async fn call_init_info_db(&self) -> Result<()> {
         let info_db = &self.info_db;
-        let role = self.server_info.lock().unwrap().role.clone();
-        let port = self.server_info.lock().unwrap().addr.port();
+        let role = self.server_info.lock().await.role.clone();
+        let port = self.server_info.lock().await.addr.port();
         match &role {
             &Role::Master => {
                 let _ = init_info_db(&info_db, None, port, role);
@@ -258,17 +258,42 @@ impl Server {
 type WriteHalf = io::WriteHalf<TcpStream>;
 type ReadHalf = io::ReadHalf<TcpStream>;
 
-pub fn replicate(frame: Frame, server_info: Arc<Mutex<ServerInfo>>) {
-    let mut server_info = server_info.lock().unwrap();
+pub async fn replicate(frame: Frame, server_info: Arc<tokio::sync::Mutex<ServerInfo>>) {
+    //     let mut server_info = server_info.lock().unwrap();
+    //     let msg = frame.bytes_vec();
+    //     println!("Replicatiing: {:?}", msg);
+    //     for replica in server_info.replicas.iter_mut() {
+    //         println!("Replicating this replica: {:?}", replica);
+    //         let _ = replicate_send_and_receive(replica, &msg).await.unwrap();
+    //     }
     let msg = frame.bytes_vec();
     println!("Replicatiing: {:?}", msg);
-    for replica in server_info.replicas.iter_mut() {
-        let _ = my_send(replica, &msg[..]);
+    let replicas = &mut server_info.lock().await.replicas;
+    for replica in replicas.iter_mut() {
+        println!("Replicating this replica: {:?}", replica);
+        let msg = msg.clone();
+        let _ = replicate_send_and_receive(replica, msg).await.unwrap();
     }
 }
 
-pub async fn my_send(stream: &mut TcpStream, msg: &[u8]) {
-    stream.write_all(&msg).await.unwrap();
+pub async fn replicate_send_and_receive(stream: &mut TcpStream, msg: Vec<u8>) -> Result<()> {
+    let (mut rd, mut wr) = io::split(stream);
+    if let Ok(_) = wr.write_all(&msg[..]).await {
+        let mut buffer: [u8; 1024] = [0; 1024];
+
+        let len = rd.read(&mut buffer).await?;
+
+        if len == 0 {
+            bail!("Nothing read from read buffer loop")
+        }
+
+        println!(
+            "Response: {:?}",
+            str::from_utf8(&buffer[..len]).unwrap() // &buffer[..len]
+        );
+    }
+    rd.unsplit(wr);
+    return Ok(());
 }
 
 fn sync_replica_db(/* info_db: &InfoDb, db: &Db */) -> Result<()> {
@@ -290,9 +315,8 @@ async fn send_and_receive(msg: Vec<u8>, rd: &mut ReadHalf, wr: &mut WriteHalf) -
         }
 
         println!(
-            "Handshake: {:?} Received",
-            // str::from_utf8(&buffer[..len]).unwrap()
-            &buffer[..len]
+            "Response: {:?}",
+            str::from_utf8(&buffer[..len]).unwrap() // &buffer[..len]
         );
     }
     Ok(())
@@ -304,7 +328,7 @@ async fn stream_handler(
     mut stream: TcpStream,
     db: Arc<Mutex<Database>>,
     info_db: Arc<Mutex<Database>>,
-    server_info: Arc<Mutex<ServerInfo>>,
+    server_info: Arc<tokio::sync::Mutex<ServerInfo>>,
 ) -> Result<()> {
     let mut buffer: [u8; 1024] = [0; 1024];
     loop {
@@ -333,11 +357,11 @@ async fn stream_handler(
             match frame_c.command() {
                 Command::Set => {
                     println!("Command SET");
-                    let _ = replicate(frame_c, server_info.clone());
+                    let _ = replicate(frame_c, server_info.clone()).await;
                 }
                 Command::PSync => {
                     println!("Command PSYNC");
-                    let mut server_info = server_info.lock().unwrap();
+                    let mut server_info = server_info.lock().await;
                     server_info.replicas.push(stream);
                     return Ok(());
                 }
