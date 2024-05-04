@@ -107,7 +107,11 @@ impl Server {
                     .collect_tuple()
                     .context("parsing arguments for --replicaof flag")
                     .unwrap();
-                let master_addr: SocketAddr = format!("{}:{}", host, port).parse().unwrap();
+                println!("{}:{}", host, port);
+                // let master_addr: SocketAddr = format!("{}:{}", host, port)
+                let master_addr: SocketAddr = format!("127.0.0.1:{}", port)
+                    .parse()
+                    .expect("failed to parse dis addy doh");
                 return Self {
                     server_info: Arc::new(tokio::sync::Mutex::new(ServerInfo {
                         replicas: Vec::default(),
@@ -316,7 +320,8 @@ async fn send_and_receive(msg: Vec<u8>, rd: &mut ReadHalf, wr: &mut WriteHalf) -
 
         println!(
             "Response: {:?}",
-            str::from_utf8(&buffer[..len]).unwrap() // &buffer[..len]
+            // str::from_utf8(&buffer[..len]).unwrap()
+            &buffer[..len]
         );
     }
     Ok(())
