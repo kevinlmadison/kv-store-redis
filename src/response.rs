@@ -19,6 +19,7 @@ pub type Response = Vec<Vec<u8>>;
 //     value: String,
 //     expiry: Option<Instant>,
 // }
+//
 
 fn handle_get(frame: Frame, db: &Db) -> Result<Vec<u8>> {
     let db = db.lock().unwrap();
@@ -181,7 +182,8 @@ pub fn create_response(frame: Frame, db: &Db, info_db: &Db) -> Result<Response> 
 
         Command::PSync => {
             let rv = handle_psync(frame, info_db)?;
-            let rdb = Type::RDBSyncString("524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2".to_string()).serialize();
+            // let rdb = Type::RDBSyncString(vec![524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2]);
+            let rdb = Type::RDBSyncString(None).serialize();
             return Ok(vec![rv, rdb]);
         }
     }

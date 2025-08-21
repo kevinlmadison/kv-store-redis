@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+pkill redis-starter-rust
 if [[ $1 = "master" ]]; then
 	ls src/* | entr -r cargo run
 else

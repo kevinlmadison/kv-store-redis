@@ -21,7 +21,8 @@ impl Frame {
             bytes_vec.push(*val_c);
         }
 
-        let (resp, _) = parse_resp(buffer);
+        let (resp, cursor) = parse_resp(buffer);
+        println!("cursor: {:?}, len: {:?}", cursor, len);
 
         let Type::Array(tokens) = resp else {
             bail!("unable to parse tokens from array")
@@ -174,14 +175,18 @@ impl Frame {
 
 fn parse_integer(buffer: &[u8]) -> (Type, Cursor) {
     let (val, cursor) = parse_crlf(buffer);
-    let val = str::from_utf8(&val).unwrap();
+    let val = str::from_utf8(&val).expect("failed in parse_int");
     return (Type::Integer(val.to_string()), cursor);
 }
 
 fn parse_simple_string(buffer: &[u8]) -> (Type, Cursor) {
     let (val, cursor) = parse_crlf(buffer);
     return (
-        Type::SimpleString(str::from_utf8(&val).unwrap().to_string()),
+        Type::SimpleString(
+            str::from_utf8(&val)
+                .expect("failed in parse_simple_string")
+                .to_string(),
+        ),
         cursor,
     );
 }
@@ -189,11 +194,13 @@ fn parse_simple_string(buffer: &[u8]) -> (Type, Cursor) {
 fn parse_bulk_string(buffer: &[u8]) -> (Type, Cursor) {
     let (len_raw, cursor) = parse_crlf(buffer);
     let len = parse_usize(len_raw);
+    // println!("Bulk String Len: {:?}", len);
     let val = &buffer[cursor..(cursor + len)];
-    return (
-        Type::BulkString(str::from_utf8(&val).unwrap().to_string()),
-        cursor + len + 2,
-    );
+    if let Ok(s) = str::from_utf8(&val) {
+        return (Type::BulkString(s.to_string()), cursor + len + 2);
+    } else {
+        return (Type::RDBSyncString(Some(val.to_vec())), cursor + len);
+    }
 }
 
 fn parse_array(buffer: &[u8]) -> (Type, Cursor) {
@@ -221,12 +228,12 @@ fn parse_usize(buffer: &[u8]) -> usize {
     num_elems_str.parse::<usize>().expect("parse usize: rv")
 }
 
-fn parse_resp(buffer: &[u8]) -> (Type, Cursor) {
+pub fn parse_resp(buffer: &[u8]) -> (Type, Cursor) {
     match buffer[0] {
         b'+' => return parse_simple_string(&buffer[1..]),
         b'$' => return parse_bulk_string(&buffer[1..]),
         b':' => return parse_integer(&buffer[1..]),
         b'*' => return parse_array(&buffer[1..]),
-        x => panic!("Invalid RESP Type: {:?}", x),
+        x => panic!("Invalid RESP Type: {:?}", str::from_utf8(&[x]).unwrap()),
     };
 }

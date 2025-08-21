@@ -97,21 +97,28 @@ pub struct Server {
     server_info: Arc<tokio::sync::Mutex<ServerInfo>>,
 }
 
+type WriteHalf = io::WriteHalf<TcpStream>;
+type ReadHalf = io::ReadHalf<TcpStream>;
+
 impl Server {
     pub fn new(args: &Args) -> Self {
         let bind_addr: SocketAddr = format!("{}:{}", args.addr, args.port).parse().unwrap();
         match &args.replicaof {
             Some(tokens) => {
                 let (host, port) = tokens
-                    .into_iter()
+                    .split(" ")
                     .collect_tuple()
                     .context("parsing arguments for --replicaof flag")
                     .unwrap();
-                println!("{}:{}", host, port);
-                // let master_addr: SocketAddr = format!("{}:{}", host, port)
-                let master_addr: SocketAddr = format!("127.0.0.1:{}", port)
-                    .parse()
-                    .expect("failed to parse dis addy doh");
+                println!("host: {} port: {}", host, port);
+                let master_addr: SocketAddr = match host {
+                    "localhost" => format!("{}:{}", "127.0.0.1", port)
+                        .parse()
+                        .expect("failed to parse this socket address"),
+                    _ => format!("{}:{}", host, port)
+                        .parse()
+                        .expect("failed to parse this socket address"),
+                };
                 return Self {
                     server_info: Arc::new(tokio::sync::Mutex::new(ServerInfo {
                         replicas: Vec::default(),
@@ -177,6 +184,21 @@ impl Server {
         }
     }
 
+    pub async fn call_init_info_db(&self) -> Result<()> {
+        let info_db = &self.info_db;
+        let role = self.server_info.lock().await.role.clone();
+        let port = self.server_info.lock().await.addr.port();
+        match &role {
+            &Role::Master => {
+                let _ = init_info_db(&info_db, None, port, role);
+            }
+            &Role::Slave(master_addr) => {
+                let _ = init_info_db(&info_db, Some(master_addr), port, role);
+            }
+        }
+        Ok(())
+    }
+
     pub async fn handshake(&self, bind_addr: SocketAddr, local_port: u16) -> Result<TcpStream> {
         // let bind_addr: String = host_addr.to_string() + ":" + host_port;
         loop {
@@ -225,80 +247,29 @@ impl Server {
 
             let mut buffer: [u8; 1024] = [0; 1024];
 
-            let len = rd.read(&mut buffer).await?;
-
-            if len == 0 {
-                println!("Nothing read from read buffer");
-                return Ok(rd.unsplit(wr));
-            }
-
-            // let _ = sync_replica_db();
-
-            println!(
-                "Handshake Post: {:?} Received",
-                // str::from_utf8(&buffer[..len]).unwrap()
-                &buffer[..len]
-            );
+            // let len = rd.read(&mut buffer).await?;
+            //
+            // if len == 0 {
+            //     println!("Nothing read from read buffer");
+            //     return Ok(rd.unsplit(wr));
+            // }
+            //
+            // // let _ = sync_replica_db();
+            //
+            // // if let Ok(s) = str::from_utf8(&buffer[..len]) {
+            // //     println!("PRINTING::::: {:?}", s);
+            // // }
+            //
+            // println!(
+            //     "Handshake Post: {:?} Received",
+            //     // str::from_utf8(&buffer[..len]).unwrap()
+            //     &buffer[..len]
+            // );
 
             return Ok(rd.unsplit(wr));
         }
     }
-    pub async fn call_init_info_db(&self) -> Result<()> {
-        let info_db = &self.info_db;
-        let role = self.server_info.lock().await.role.clone();
-        let port = self.server_info.lock().await.addr.port();
-        match &role {
-            &Role::Master => {
-                let _ = init_info_db(&info_db, None, port, role);
-            }
-            &Role::Slave(master_addr) => {
-                let _ = init_info_db(&info_db, Some(master_addr), port, role);
-            }
-        }
-        Ok(())
-    }
 }
-
-type WriteHalf = io::WriteHalf<TcpStream>;
-type ReadHalf = io::ReadHalf<TcpStream>;
-
-pub async fn replicate(frame: Frame, server_info: Arc<tokio::sync::Mutex<ServerInfo>>) {
-    let msg = frame.bytes_vec();
-    // println!("Replicatiing: {:?}", msg);
-    let replicas = &mut server_info.lock().await.replicas;
-    for replica in replicas.iter_mut() {
-        // println!("Replicating this replica: {:?}", replica);
-        let msg = msg.clone();
-        replica
-            .write_all(&msg)
-            .await
-            .expect("failed to write to stream");
-        // stream.flush().await.unwrap();
-        let ten_millis = time::Duration::from_millis(10);
-        thread::sleep(ten_millis);
-        // let _ = replicate_send_and_receive(replica, msg).await.unwrap();
-    }
-}
-
-// pub async fn replicate_send_and_receive(stream: &mut TcpStream, msg: Vec<u8>) -> Result<()> {
-//     let (mut rd, mut wr) = io::split(stream);
-//     if let Ok(_) = wr.write_all(&msg[..]).await {
-//         let mut buffer: [u8; 1024] = [0; 1024];
-//
-//         let len = rd.read(&mut buffer).await?;
-//
-//         if len == 0 {
-//             bail!("Nothing read from read buffer loop")
-//         }
-//
-//         println!(
-//             "Response: {:?}",
-//             str::from_utf8(&buffer[..len]).unwrap() // &buffer[..len]
-//         );
-//     }
-//     rd.unsplit(wr);
-//     return Ok(());
-// }
 
 fn sync_replica_db(/* info_db: &InfoDb, db: &Db */) -> Result<()> {
     // For now we just add an arbitrary wait to simulate syncing the replica
@@ -308,21 +279,73 @@ fn sync_replica_db(/* info_db: &InfoDb, db: &Db */) -> Result<()> {
     Ok(())
 }
 
+async fn parse_frame(rd: &mut ReadHalf) -> Result<Vec<Type>> {
+    let mut buffer: [u8; 1024] = [0; 1024];
+    let mut rv: Vec<Type> = Vec::new();
+    let len = rd.read(&mut buffer).await?;
+    // println!("PRINTING LEN: {:?}", len);
+    if len == 0 {
+        bail!("Nothing read from read buffer loop")
+    }
+
+    let mut i = 0;
+    for _ in 0..2 {
+        let (resp, mut cursor) = parse_resp(&buffer[i..len]);
+        println!(
+            "PRINTING RESP: {:?}, CURSOR: {:?}, LEN: {:?}, i: {:?}",
+            resp, cursor, len, i
+        );
+        // rv.push(resp);
+        cursor += 1;
+        if cursor >= len {
+            break;
+        }
+        i += cursor - i;
+        // println!("PRINTING CURSOR: {:?}, LEN: {:?}, i: {:?}", cursor, len, i);
+    }
+    // while i <= len {
+    //     let (resp, mut cursor) = parse_resp(&buffer[i..len]);
+    //     println!(
+    //         "PRINTING RESP: {:?}, CURSOR: {:?}, LEN: {:?}, i: {:?}",
+    //         resp, cursor, len, i
+    //     );
+    //     rv.push(resp);
+    //     cursor += 1;
+    //     i += cursor - i;
+    // }
+    Ok(rv)
+}
+
 async fn send_and_receive(msg: Vec<u8>, rd: &mut ReadHalf, wr: &mut WriteHalf) -> Result<()> {
     if let Ok(_) = wr.write_all(&msg[..]).await {
-        let mut buffer: [u8; 1024] = [0; 1024];
+        // let mut buffer: [u8; 1024] = [0; 1024];
+        //
+        // let len = rd.read(&mut buffer).await?;
+        //
+        // if len == 0 {
+        //     bail!("Nothing read from read buffer loop")
+        // }
 
-        let len = rd.read(&mut buffer).await?;
-
-        if len == 0 {
-            bail!("Nothing read from read buffer loop")
+        println!("SEND AND RECEIVE");
+        let frames = parse_frame(rd).await?;
+        for frame in frames.iter() {
+            println!("RESP: {:?}", frame);
         }
+        // let frame = Frame::new(&buffer, len)
+        //     .context("creating frame from buffer")
+        //     .unwrap();
+        //
+        // let frame_c = frame.clone();
 
-        println!(
-            "Response: {:?}",
-            // str::from_utf8(&buffer[..len]).unwrap()
-            &buffer[..len]
-        );
+        // if len < 10 {
+        //     println!(
+        //         "len: {:?} Response: {:?}",
+        //         len,
+        //         str::from_utf8(&buffer[..len]).unwrap() // &buffer[..len]
+        //     );
+        // } else {
+        //     println!("Response: {:?}", str::from_utf8(&buffer[..5]).unwrap());
+        // }
     }
     Ok(())
 }
@@ -352,15 +375,21 @@ async fn stream_handler(
                 .context("getting response from frame")
                 .expect("failed to create response");
 
-            for response in responses.into_iter() {
-                let response_slice = &response[..];
-                stream
-                    .write_all(response_slice)
-                    .await
-                    .expect("failed to write to stream");
-                // stream.flush().await.unwrap();
-                let ten_millis = time::Duration::from_millis(10);
-                thread::sleep(ten_millis);
+            let role = server_info.lock().await.role.clone();
+            match role {
+                Role::Master => {
+                    for response in responses.into_iter() {
+                        let response_slice = &response[..];
+                        stream
+                            .write_all(response_slice)
+                            .await
+                            .expect("failed to write to stream");
+                        // stream.flush().await.unwrap();
+                        let ten_millis = time::Duration::from_millis(10);
+                        thread::sleep(ten_millis);
+                    }
+                }
+                Role::Slave(_) => (),
             }
             match frame_c.command() {
                 Command::Set => {
@@ -378,5 +407,20 @@ async fn stream_handler(
                 }
             }
         }
+    }
+}
+
+pub async fn replicate(frame: Frame, server_info: Arc<tokio::sync::Mutex<ServerInfo>>) {
+    let msg = frame.bytes_vec();
+    let replicas = &mut server_info.lock().await.replicas;
+    for replica in replicas.iter_mut() {
+        replica
+            .write_all(&msg)
+            .await
+            .expect("failed to write to stream");
+        // replica.flush().await.unwrap();
+        let ten_millis = time::Duration::from_millis(10);
+        thread::sleep(ten_millis);
+        // let _ = replicate_send_and_receive(replica, msg).await.unwrap();
     }
 }
